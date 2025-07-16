@@ -18,6 +18,7 @@ from .analysis.data_flow import DataFlowAnalyzer
 from .analysis.dependencies import DependencyAnalyzer
 from .analysis.security import SecurityAnalyzer
 from .analysis.inheritance import InheritanceAnalyzer
+from .version_control.git_analyzer import GitAnalyzer
 
 
 class GraphUpdater:
@@ -41,6 +42,14 @@ class GraphUpdater:
         self.ast_cache: dict[Path, tuple[Node, str]] = {}
         self.module_dependencies: dict[str, set[str]] = defaultdict(set)  # Track module dependencies
         self.module_exports: dict[str, list] = defaultdict(list)  # Track module exports
+        
+        # Initialize Git analyzer if repo is a git repository
+        self.git_analyzer = None
+        try:
+            self.git_analyzer = GitAnalyzer(repo_path)
+            logger.info("Git repository detected, version control analysis enabled")
+        except Exception as e:
+            logger.info("Not a git repository or git analysis unavailable")
         self.ignore_dirs = {
             ".git",
             "venv",
@@ -77,6 +86,10 @@ class GraphUpdater:
         
         logger.info("--- Pass 4: Detecting Circular Dependencies ---")
         self._detect_and_report_circular_dependencies()
+        
+        # Analyze repository-level Git information
+        if self.git_analyzer:
+            self._analyze_repository_git_info()
 
         logger.info("\n--- Analysis complete. Flushing all data to database... ---")
         self.ingestor.flush_all()
@@ -301,6 +314,10 @@ class GraphUpdater:
             # Perform inheritance analysis
             if language in ["python", "javascript", "typescript", "java", "cpp"]:
                 self._analyze_inheritance(file_path, source_bytes.decode("utf-8"), module_qn, language)
+                
+            # Perform Git analysis if available
+            if self.git_analyzer:
+                self._analyze_git_info(file_path, module_qn)
 
         except Exception as e:
             logger.error(f"Failed to parse or ingest {file_path}: {e}")
@@ -1580,3 +1597,131 @@ class GraphUpdater:
                     
         except Exception as e:
             logger.error(f"Failed to perform inheritance analysis on {file_path}: {e}")
+    
+    def _analyze_git_info(self, file_path: Path, module_qn: str) -> None:
+        """Analyze Git information for a file."""
+        try:
+            # Get file history
+            history = self.git_analyzer.get_file_history(str(file_path), max_commits=50)
+            
+            if history:
+                # Update module with Git metadata
+                self.ingestor.ensure_node(
+                    "Module",
+                    {
+                        "qualified_name": module_qn,
+                        "creation_date": history.creation_date.isoformat(),
+                        "last_modified": history.last_modified.isoformat(),
+                        "total_commits": history.total_commits,
+                        "contributor_count": len(history.contributors)
+                    }
+                )
+                
+                # Create Commit nodes for recent commits
+                for commit_info in history.commits[:10]:  # Last 10 commits
+                    commit_id = f"commit_{commit_info.sha[:8]}"
+                    self.ingestor.ensure_node(
+                        "Commit",
+                        {
+                            "sha": commit_info.sha,
+                            "short_sha": commit_info.sha[:8],
+                            "author": commit_info.author,
+                            "author_email": commit_info.author_email,
+                            "message": commit_info.message[:500],  # Limit message length
+                            "date": commit_info.date.isoformat(),
+                            "additions": commit_info.additions,
+                            "deletions": commit_info.deletions
+                        }
+                    )
+                    
+                    # Link commit to module
+                    self.ingestor.ensure_relationship_batch(
+                        ("Commit", "sha", commit_info.sha),
+                        "MODIFIES",
+                        ("Module", "qualified_name", module_qn),
+                        {"date": commit_info.date.isoformat()}
+                    )
+                
+                # Create Contributor nodes
+                for contributor, commit_count in history.contributors[:5]:  # Top 5 contributors
+                    contributor_id = contributor.replace(" ", "_").replace("<", "").replace(">", "")
+                    self.ingestor.ensure_node(
+                        "Contributor",
+                        {
+                            "id": contributor_id,
+                            "name": contributor.split(" <")[0] if " <" in contributor else contributor,
+                            "email": contributor.split("<")[1].rstrip(">") if "<" in contributor else ""
+                        }
+                    )
+                    
+                    # Link contributor to module
+                    self.ingestor.ensure_relationship_batch(
+                        ("Contributor", "id", contributor_id),
+                        "CONTRIBUTED_TO",
+                        ("Module", "qualified_name", module_qn),
+                        {"commit_count": commit_count}
+                    )
+            
+            # Get blame information for key functions/classes
+            blame_info = self.git_analyzer.get_blame_info(str(file_path))
+            
+            if blame_info:
+                # Store blame info for functions and classes
+                # This would require parsing the file to map line numbers to entities
+                # For now, just log the info
+                logger.debug(f"  Got blame info for {len(blame_info)} lines in {file_path.name}")
+                
+        except Exception as e:
+            logger.error(f"Failed to analyze Git info for {file_path}: {e}")
+    
+    def _analyze_repository_git_info(self) -> None:
+        """Analyze repository-level Git information."""
+        try:
+            logger.info("--- Analyzing Repository Git Information ---")
+            
+            # Get recent commits
+            recent_commits = self.git_analyzer.get_recent_commits(max_commits=100)
+            logger.info(f"  Found {len(recent_commits)} recent commits")
+            
+            # Create repository node with Git metadata
+            if recent_commits:
+                self.ingestor.ensure_node(
+                    "Repository",
+                    {
+                        "name": self.project_name,
+                        "path": str(self.repo_path),
+                        "total_commits": len(recent_commits),
+                        "last_commit_date": recent_commits[0].date.isoformat() if recent_commits else "",
+                        "first_commit_date": recent_commits[-1].date.isoformat() if recent_commits else ""
+                    }
+                )
+            
+            # Get all contributors
+            contributors = self.git_analyzer.get_contributors()
+            logger.info(f"  Found {len(contributors)} contributors")
+            
+            # Create top contributors
+            for contributor, commit_count in contributors[:20]:  # Top 20 contributors
+                contributor_id = contributor.replace(" ", "_").replace("<", "").replace(">", "")
+                self.ingestor.ensure_node(
+                    "Contributor",
+                    {
+                        "id": contributor_id,
+                        "name": contributor.split(" <")[0] if " <" in contributor else contributor,
+                        "email": contributor.split("<")[1].rstrip(">") if "<" in contributor else "",
+                        "total_commits": commit_count
+                    }
+                )
+                
+                # Link contributor to repository
+                self.ingestor.ensure_relationship_batch(
+                    ("Contributor", "id", contributor_id),
+                    "CONTRIBUTES_TO",
+                    ("Repository", "name", self.project_name),
+                    {"commit_count": commit_count}
+                )
+            
+            logger.info("  Repository Git analysis complete")
+            
+        except Exception as e:
+            logger.error(f"Failed to analyze repository Git info: {e}")
