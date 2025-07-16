@@ -1,7 +1,7 @@
 import os
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import toml
 from loguru import logger
@@ -14,6 +14,7 @@ from .parsers.c_parser import CParser
 from .parsers.test_parser import TestParser
 from .parsers.test_detector import TestDetector
 from .parsers.bdd_parser import BDDParser
+from .analysis.data_flow import DataFlowAnalyzer
 
 
 class GraphUpdater:
@@ -276,6 +277,10 @@ class GraphUpdater:
                 # Use regular parsing for other files
                 self._ingest_top_level_functions(root_node, module_qn, language)
                 self._ingest_classes_and_methods(root_node, module_qn, language)
+                
+            # Perform data flow analysis if enabled
+            if language in ["python", "javascript", "typescript", "c"]:
+                self._analyze_data_flow(file_path, source_bytes.decode("utf-8"), module_qn, language)
 
         except Exception as e:
             logger.error(f"Failed to parse or ingest {file_path}: {e}")
@@ -1162,3 +1167,93 @@ class GraphUpdater:
                     
         except Exception as e:
             logger.error(f"Failed to parse BDD file {file_path}: {e}")
+    
+    def _analyze_data_flow(self, file_path: Path, content: str, module_qn: str, language: str) -> None:
+        """Perform data flow analysis on a file (REQ-DF-1, REQ-DF-2)."""
+        logger.info(f"  Analyzing data flow in: {file_path}")
+        
+        try:
+            # Create data flow analyzer
+            analyzer = DataFlowAnalyzer(self.parsers[language], self.queries[language], language)
+            variables, flows = analyzer.analyze_file(str(file_path), content, module_qn)
+            
+            # Ingest variable nodes
+            for var in variables:
+                self.ingestor.ensure_node_batch(
+                    "Variable",
+                    var.to_dict()
+                )
+                
+                # Link variable to its scope
+                if var.scope:
+                    if "." in var.scope:
+                        # Function or class scope
+                        scope_parts = var.scope.split(".")
+                        if scope_parts[-1].startswith(module_qn):
+                            # It's a function
+                            self.ingestor.ensure_relationship_batch(
+                                ("Function", "qualified_name", var.scope),
+                                "DECLARES_VARIABLE",
+                                ("Variable", "qualified_name", var.qualified_name)
+                            )
+                        else:
+                            # It's a class
+                            self.ingestor.ensure_relationship_batch(
+                                ("Class", "qualified_name", var.scope),
+                                "HAS_FIELD" if var.var_type == "field" else "DECLARES_VARIABLE",
+                                ("Variable", "qualified_name", var.qualified_name)
+                            )
+                    else:
+                        # Module scope
+                        self.ingestor.ensure_relationship_batch(
+                            ("Module", "qualified_name", var.scope),
+                            "DECLARES_VARIABLE",
+                            ("Variable", "qualified_name", var.qualified_name)
+                        )
+            
+            # Ingest flow edges
+            for flow in flows:
+                # Create FLOWS_TO relationships
+                source_type = self._determine_node_type(flow.source)
+                target_type = self._determine_node_type(flow.target)
+                
+                if source_type and target_type:
+                    self.ingestor.ensure_relationship_batch(
+                        (source_type, "qualified_name", flow.source),
+                        "FLOWS_TO",
+                        (target_type, "qualified_name", flow.target),
+                        properties=flow.to_dict()
+                    )
+                    
+                    # Create specific flow type edges
+                    if flow.flow_type == "modifies":
+                        self.ingestor.ensure_relationship_batch(
+                            (source_type, "qualified_name", flow.source),
+                            "MODIFIES",
+                            (target_type, "qualified_name", flow.target),
+                            properties={"line_number": flow.line_number}
+                        )
+                    elif flow.flow_type == "passes_to":
+                        self.ingestor.ensure_relationship_batch(
+                            (source_type, "qualified_name", flow.source),
+                            "PASSES_TO",
+                            (target_type, "qualified_name", flow.target),
+                            properties={"line_number": flow.line_number}
+                        )
+                        
+            logger.info(f"  Found {len(variables)} variables and {len(flows)} data flows")
+            
+        except Exception as e:
+            logger.error(f"Failed to analyze data flow in {file_path}: {e}")
+    
+    def _determine_node_type(self, qualified_name: str) -> Optional[str]:
+        """Determine the node type from a qualified name."""
+        if qualified_name.startswith("return_of_"):
+            return "Function"
+        elif qualified_name.startswith("param_of_"):
+            return "Function"
+        else:
+            # Check if it's a known variable
+            if "." in qualified_name:
+                return "Variable"
+            return None

@@ -122,12 +122,32 @@ def load_parsers() -> tuple[dict[str, Parser], dict[str, Any]]:
                     ]
                 )
 
-                queries[lang_name] = {
+                # Add language-specific queries
+                lang_queries = {
                     "functions": language.query(function_patterns),
                     "classes": language.query(class_patterns),
                     "calls": language.query(call_patterns) if call_patterns else None,
                     "config": lang_config,
                 }
+                
+                # Add data flow queries for supported languages
+                if lang_name == "python":
+                    lang_queries["assignments"] = language.query("""
+                        (assignment) @assignment
+                    """)
+                elif lang_name in ["javascript", "typescript"]:
+                    lang_queries["assignments"] = language.query("""
+                        [
+                            (assignment_expression) @assignment
+                            (variable_declarator) @assignment
+                        ]
+                    """)
+                elif lang_name == "c":
+                    lang_queries["assignments"] = language.query("""
+                        (assignment_expression) @assignment
+                    """)
+                    
+                queries[lang_name] = lang_queries
 
                 available_languages.append(lang_name)
                 logger.success(f"Successfully loaded {lang_name} grammar.")

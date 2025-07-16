@@ -21,6 +21,24 @@ wheels = [
 ]
 
 [[package]]
+name = "anthropic"
+version = "0.57.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "jiter" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d7/75/6261a1a8d92aed47e27d2fcfb3a411af73b1435e6ae1186da02b760565d0/anthropic-0.57.1.tar.gz", hash = "sha256:7815dd92245a70d21f65f356f33fc80c5072eada87fb49437767ea2918b2c4b0", size = 423775, upload-time = "2025-07-03T16:57:35.932Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/cf/ca0ba77805aec6171629a8b665c7dc224dab374539c3d27005b5d8c100a0/anthropic-0.57.1-py3-none-any.whl", hash = "sha256:33afc1f395af207d07ff1bffc0a3d1caac53c371793792569c5d2f09283ea306", size = 292779, upload-time = "2025-07-03T16:57:34.636Z" },
+]
+
+[[package]]
 name = "anyio"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -271,7 +289,7 @@ dependencies = [
     { name = "loguru" },
     { name = "prompt-toolkit" },
     { name = "psutil" },
-    { name = "pydantic-ai-slim", extra = ["google", "openai", "vertexai"] },
+    { name = "pydantic-ai-slim", extra = ["anthropic", "google", "openai", "vertexai"] },
     { name = "pydantic-settings" },
     { name = "pymgclient" },
     { name = "python-dotenv" },
@@ -310,6 +328,7 @@ treesitter-full = [
 [package.dev-dependencies]
 dev = [
     { name = "pyinstaller" },
+    { name = "pytest" },
     { name = "types-toml" },
 ]
 
@@ -321,7 +340,7 @@ requires-dist = [
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.2.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
     { name = "psutil", specifier = ">=5.9.0" },
-    { name = "pydantic-ai-slim", extras = ["google", "openai", "vertexai"], specifier = ">=0.2.18" },
+    { name = "pydantic-ai-slim", extras = ["google", "openai", "vertexai", "anthropic"], specifier = ">=0.2.18" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "pymgclient", specifier = ">=1.4.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.4.1" },
@@ -351,6 +370,7 @@ provides-extras = ["test", "dev", "treesitter-full"]
 [package.metadata.requires-dev]
 dev = [
     { name = "pyinstaller", specifier = ">=6.14.1" },
+    { name = "pytest", specifier = ">=8.4.1" },
     { name = "types-toml", specifier = ">=0.10.8.20240310" },
 ]
 
@@ -782,6 +802,9 @@ wheels = [
 ]
 
 [package.optional-dependencies]
+anthropic = [
+    { name = "anthropic" },
+]
 google = [
     { name = "google-genai" },
 ]
