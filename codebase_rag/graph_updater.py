@@ -16,6 +16,7 @@ from .parsers.test_detector import TestDetector
 from .parsers.bdd_parser import BDDParser
 from .analysis.data_flow import DataFlowAnalyzer
 from .analysis.dependencies import DependencyAnalyzer
+from .analysis.security import SecurityAnalyzer
 
 
 class GraphUpdater:
@@ -291,6 +292,10 @@ class GraphUpdater:
             # Perform dependency analysis
             if language in ["python", "javascript", "typescript", "c"]:
                 self._analyze_dependencies(file_path, source_bytes.decode("utf-8"), module_qn, language)
+                
+            # Perform security analysis
+            if language in ["python", "javascript", "typescript", "c"]:
+                self._analyze_security(file_path, source_bytes.decode("utf-8"), module_qn, language)
 
         except Exception as e:
             logger.error(f"Failed to parse or ingest {file_path}: {e}")
@@ -1384,3 +1389,103 @@ class GraphUpdater:
                 
         except Exception as e:
             logger.error(f"Failed to detect circular dependencies: {e}")
+    
+    def _analyze_security(self, file_path: Path, content: str, module_qn: str, language: str) -> None:
+        """Analyze security vulnerabilities in the file."""
+        try:
+            # Get parser and queries for the language
+            if language not in self.parsers or language not in self.queries:
+                logger.warning(f"No parser available for {language}, skipping security analysis")
+                return
+                
+            parser = self.parsers[language]
+            queries = self.queries[language]
+            
+            # Create security analyzer
+            analyzer = SecurityAnalyzer(parser, queries, language)
+            
+            # Analyze for vulnerabilities
+            vulnerabilities = analyzer.analyze_file(str(file_path), content, module_qn)
+            
+            # Create Vulnerability nodes and relationships
+            for vuln in vulnerabilities:
+                # Create vulnerability node
+                vuln_id = f"{module_qn}:{vuln.vuln_type}:{vuln.line_number}"
+                self.ingestor.ensure_node(
+                    "Vulnerability",
+                    {
+                        "id": vuln_id,
+                        "type": vuln.vuln_type,
+                        "severity": vuln.severity,
+                        "description": vuln.description,
+                        "line_number": vuln.line_number,
+                        "code_snippet": vuln.code_snippet[:500],  # Limit snippet size
+                        "cwe_id": vuln.cwe_id or "",
+                        "recommendation": vuln.recommendation or "",
+                        "confidence": vuln.confidence
+                    }
+                )
+                
+                # Link vulnerability to module
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "HAS_VULNERABILITY",
+                    ("Vulnerability", "id", vuln_id),
+                    {"file_path": str(file_path)}
+                )
+                
+            # Get data flows for taint analysis
+            data_flows = []
+            if hasattr(self, "_last_data_flows"):
+                data_flows = self._last_data_flows
+                
+            # Analyze taint flows
+            taint_flows = analyzer.analyze_taint_flow(str(file_path), content, data_flows)
+            
+            # Create taint flow relationships
+            for taint in taint_flows:
+                # Create TAINT_FLOW edges
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "TAINT_FLOW",
+                    ("Module", "qualified_name", module_qn),
+                    {
+                        "source_type": taint.source_type,
+                        "source_line": taint.source_location[1],
+                        "sink_type": taint.sink_type,
+                        "sink_line": taint.sink_location[1],
+                        "is_validated": taint.is_validated,
+                        "flow_length": len(taint.flow_path)
+                    }
+                )
+                
+                # If unvalidated taint to dangerous sink, create high severity vulnerability
+                if not taint.is_validated and taint.sink_type in ["exec", "sql", "kernel"]:
+                    vuln_id = f"{module_qn}:taint_flow:{taint.source_location[1]}_to_{taint.sink_location[1]}"
+                    self.ingestor.ensure_node(
+                        "Vulnerability",
+                        {
+                            "id": vuln_id,
+                            "type": f"{taint.source_type}_to_{taint.sink_type}",
+                            "severity": "high",
+                            "description": f"Unvalidated {taint.source_type} flows to {taint.sink_type}",
+                            "line_number": taint.sink_location[1],
+                            "code_snippet": f"Taint from line {taint.source_location[1]} to line {taint.sink_location[1]}",
+                            "cwe_id": "CWE-20",  # Improper Input Validation
+                            "recommendation": "Validate and sanitize input before use",
+                            "confidence": 0.9
+                        }
+                    )
+                    
+                    self.ingestor.ensure_relationship_batch(
+                        ("Module", "qualified_name", module_qn),
+                        "HAS_VULNERABILITY",
+                        ("Vulnerability", "id", vuln_id),
+                        {"file_path": str(file_path)}
+                    )
+                    
+            if vulnerabilities:
+                logger.info(f"  Found {len(vulnerabilities)} vulnerabilities in {file_path.name}")
+                    
+        except Exception as e:
+            logger.error(f"Failed to perform security analysis on {file_path}: {e}")
