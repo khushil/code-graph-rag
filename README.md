@@ -39,12 +39,13 @@ Use the Makefile for:
 
 ## 🚀 Features
 
-- **🌍 Multi-Language Support**: Supports Python, JavaScript, TypeScript, Rust, Go, Scala, Java, and C++ codebases
+### Core Features
+- **🌍 Multi-Language Support**: Supports Python, JavaScript, TypeScript, Rust, Go, Scala, Java, C++, and **C** codebases
 - **🌳 Tree-sitter Parsing**: Uses Tree-sitter for robust, language-agnostic AST parsing
 - **📊 Knowledge Graph Storage**: Uses Memgraph to store codebase structure as an interconnected graph
 - **🗣️ Natural Language Querying**: Ask questions about your codebase in plain English
-- **🤖 AI-Powered Cypher Generation**: Supports both cloud models (Google Gemini), local models (Ollama), and OpenAI models for natural language to Cypher translation
-- **🤖 OpenAI Integration**: Leverage OpenAI models to enhance AI functionalities.
+- **🤖 AI-Powered Cypher Generation**: Supports multiple AI providers - Google Gemini, OpenAI, Anthropic Claude, and local models (Ollama) for natural language to Cypher translation
+- **🤖 Multi-Provider Flexibility**: Seamlessly switch between providers based on your needs and preferences
 - **📝 Code Snippet Retrieval**: Retrieves actual source code snippets for found functions/methods
 - **✍️ Advanced File Editing**: Surgical code replacement with AST-based function targeting, visual diff previews, and exact code block modifications
 - **⚡️ Shell Command Execution**: Can execute terminal commands for tasks like running tests or using CLI tools.
@@ -53,6 +54,28 @@ Use the Makefile for:
 - **🔗 Dependency Analysis**: Parses `pyproject.toml` to understand external dependencies
 - **🎯 Nested Function Support**: Handles complex nested functions and class hierarchies
 - **🔄 Language-Agnostic Design**: Unified graph schema across all supported languages
+
+### Performance & Scalability (New!)
+- **⚡ Parallel Processing**: Multi-core parallel file parsing with configurable worker pools
+- **💾 Memory Optimization**: Streaming parsers and memory-mapped file handling for large codebases
+- **📈 Graph Indexing**: Automatic index creation for 20+ common query patterns
+- **🚀 Query Caching**: LRU cache with configurable TTL for faster repeated queries
+- **📊 Progress Reporting**: Real-time progress tracking with ETA for large operations
+
+### Advanced Language Support (New!)
+- **🔧 C Language Support**: Full support for C including:
+  - Function pointers and callbacks
+  - Macros and preprocessor directives
+  - Structs, unions, and enums
+  - Linux kernel patterns (syscalls, exports, locks)
+- **🧪 Test Framework Integration**: Automatic detection and parsing of tests:
+  - Python: pytest, unittest
+  - JavaScript/TypeScript: Jest, Mocha, Jasmine
+  - C: Unity, Check, CMocka
+  - Rust: cargo test
+  - Go: testing package, Ginkgo
+  - Java: JUnit, TestNG
+- **🥒 BDD Support**: Parse and link Gherkin feature files to implementations
 
 ## 🏗️ Architecture
 
@@ -66,11 +89,18 @@ The system consists of two main components:
 
 - Python 3.12+
 - Docker & Docker Compose (for Memgraph)
-- **For cloud models**: Google Gemini API key
-- **For local models**: Ollama installed and running
+- **For AI providers**: At least one API key from:
+  - Google Gemini
+  - OpenAI
+  - Anthropic Claude
+  - Or Ollama for local models
 - `uv` package manager
 
 ## 🛠️ Installation
+
+For a complete step-by-step setup guide, see [SETUP.md](SETUP.md).
+
+### Quick Start
 
 ```bash
 git clone https://github.com/vitali87/code-graph-rag.git
@@ -107,7 +137,9 @@ cp .env.example .env
 
 ### Configuration Options
 
-#### Option 1: Cloud Models (Gemini)
+Configure one or more AI providers in your `.env` file:
+
+#### Option 1: Google Gemini (Recommended)
 
 ```bash
 # .env file
@@ -115,13 +147,21 @@ GEMINI_API_KEY=your_gemini_api_key_here
 ```
 Get your free API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
 
-#### Option 2: OpenAI Models
+#### Option 2: OpenAI
 ```bash
 # .env file
 OPENAI_API_KEY=your_openai_api_key_here
 ```
+Get your API key from [OpenAI Platform](https://platform.openai.com/api-keys).
 
-#### Option 3: Local Models (Ollama)
+#### Option 3: Anthropic Claude
+```bash
+# .env file
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+```
+Get your API key from [Anthropic Console](https://console.anthropic.com/).
+
+#### Option 4: Local Models (Ollama)
 ```bash
 # .env file
 LOCAL_MODEL_ENDPOINT=http://localhost:11434/v1
@@ -176,6 +216,31 @@ python -m codebase_rag.main start --repo-path /path/to/repo2 --update-graph
 python -m codebase_rag.main start --repo-path /path/to/repo3 --update-graph
 ```
 
+**Performance Options (New!):**
+```bash
+# Enable parallel processing with automatic worker detection
+python -m codebase_rag.main start --repo-path /path/to/repo --update-graph --parallel
+
+# Specify number of worker processes
+python -m codebase_rag.main start --repo-path /path/to/repo --update-graph --parallel --workers 8
+
+# Process only specific folders
+python -m codebase_rag.main start --repo-path /path/to/repo --update-graph --folder-filter "src,lib,tests"
+
+# Filter files by pattern
+python -m codebase_rag.main start --repo-path /path/to/repo --update-graph --file-pattern "*.py,*.js"
+
+# Skip test files for faster processing
+python -m codebase_rag.main start --repo-path /path/to/repo --update-graph --skip-tests
+
+# Combine options for large codebases
+python -m codebase_rag.main start --repo-path /path/to/linux-kernel \
+  --update-graph --clean \
+  --parallel --workers 16 \
+  --folder-filter "drivers,kernel,fs" \
+  --skip-tests
+```
+
 The system automatically detects and processes files for all supported languages (see Multi-Language Support section).
 
 ### Step 2: Query the Codebase
@@ -188,30 +253,36 @@ python -m codebase_rag.main start --repo-path /path/to/your/repo
 
 ### Runtime Model Switching
 
-You can switch between cloud and local models at runtime using CLI arguments:
+You can switch between providers and models at runtime using CLI arguments:
 
-**Use Local Models:**
+**Use specific models directly (auto-detects provider):**
 ```bash
-python -m codebase_rag.main start --repo-path /path/to/your/repo --llm-provider local
-```
-
-**Use Cloud Models:**
-```bash
-python -m codebase_rag.main start --repo-path /path/to/your/repo --llm-provider gemini
-```
-
-**Specify Custom Models:**
-```bash
-# Use specific local models
+# Gemini models
 python -m codebase_rag.main start --repo-path /path/to/your/repo \
-  --llm-provider local \
+  --orchestrator-model gemini-2.5-pro \
+  --cypher-model gemini-2.5-flash-lite-preview-06-17
+
+# OpenAI models
+python -m codebase_rag.main start --repo-path /path/to/your/repo \
+  --orchestrator-model gpt-4o \
+  --cypher-model gpt-4o-mini
+
+# Anthropic models
+python -m codebase_rag.main start --repo-path /path/to/your/repo \
+  --orchestrator-model claude-3-5-sonnet-20241022 \
+  --cypher-model claude-3-5-haiku-20241022
+
+# Local models (Ollama)
+python -m codebase_rag.main start --repo-path /path/to/your/repo \
   --orchestrator-model llama3.1 \
   --cypher-model codellama
+```
 
-# Use specific Gemini models
+**Mix providers for different tasks:**
+```bash
+# Use Claude for orchestration, Gemini for Cypher generation
 python -m codebase_rag.main start --repo-path /path/to/your/repo \
-  --llm-provider gemini \
-  --orchestrator-model gemini-2.0-flash-thinking-exp-01-21 \
+  --orchestrator-model claude-3-5-sonnet-20241022 \
   --cypher-model gemini-2.5-flash-lite-preview-06-17
 ```
 
@@ -266,9 +337,16 @@ for func in functions[:5]:
     print(f"Function {func.properties['name']} has {len(relationships)} relationships")
 ```
 
-**Example analysis script:**
+**Example analysis scripts:**
 ```bash
+# Basic graph analysis
 python examples/graph_export_example.py my_graph.json
+
+# Process large codebases with parallel processing
+python examples/large_codebase_example.py /path/to/linux-kernel --workers 16 --folder-filter "drivers,kernel"
+
+# Analyze C code and test coverage
+python examples/c_and_test_analysis_example.py --report
 ```
 
 This provides a reliable, programmatic way to access your codebase structure without LLM restrictions, perfect for:
@@ -276,6 +354,8 @@ This provides a reliable, programmatic way to access your codebase structure wit
 - Custom analysis scripts
 - Building documentation generators
 - Creating code metrics dashboards
+- Processing million-line codebases efficiently
+- Analyzing test coverage and quality
 
 ### Step 4: Code Optimization (New!)
 
@@ -364,13 +444,26 @@ The knowledge graph uses the following node types and relationships:
 ### Node Types
 - **Project**: Root node representing the entire repository
 - **Package**: Language packages (Python: `__init__.py`, etc.)
-- **Module**: Individual source code files (`.py`, `.js`, `.jsx`, `.ts`, `.tsx`, `.rs`, `.go`, `.scala`, `.sc`, `.java`)
+- **Module**: Individual source code files (`.py`, `.js`, `.jsx`, `.ts`, `.tsx`, `.rs`, `.go`, `.scala`, `.sc`, `.java`, `.c`, `.h`)
 - **Class**: Class/Struct/Enum definitions across all languages
 - **Function**: Module-level functions and standalone functions
 - **Method**: Class methods and associated functions
 - **Folder**: Regular directories
 - **File**: All files (source code and others)
 - **ExternalPackage**: External dependencies
+- **TestSuite**: Test suite containers (pytest classes, Jest describe blocks, etc.)
+- **TestCase**: Individual test cases across frameworks
+- **Assertion**: Test assertions with expected/actual values
+- **BDDFeature**: Gherkin feature definitions
+- **BDDScenario**: BDD scenarios within features
+- **BDDStep**: Given/When/Then steps
+- **Macro**: C preprocessor macros
+- **Struct**: C struct definitions
+- **GlobalVariable**: C global variables
+- **Pointer**: C pointer variables
+- **Typedef**: C type definitions
+- **Syscall**: Linux kernel syscall definitions
+- **KernelExport**: Kernel exported symbols
 
 ### Language-Specific Mappings
 - **Python**: `function_definition`, `class_definition`
@@ -380,6 +473,7 @@ The knowledge graph uses the following node types and relationships:
 - **Scala**: `function_definition`, `class_definition`, `object_definition`, `trait_definition`
 - **Java**: `method_declaration`, `class_declaration`, `interface_declaration`, `enum_declaration`
 - **C++**: `function_definition`, `constructor_definition`, `destructor_definition`, `class_specifier`, `struct_specifier`, `union_specifier`, `enum_specifier`
+- **C**: `function_definition`, `struct_specifier`, `union_specifier`, `enum_specifier`, `declaration` (for typedefs and variables)
 
 ### Relationships
 - `CONTAINS_PACKAGE`: Project or Package contains Package nodes
@@ -390,15 +484,38 @@ The knowledge graph uses the following node types and relationships:
 - `DEFINES_METHOD`: Class defines methods
 - `DEPENDS_ON_EXTERNAL`: Project depends on external packages
 - `CALLS`: Function or Method calls other functions/methods
+- `POINTS_TO`: Pointer points to a variable or function
+- `ASSIGNS_FP`: Function pointer assignment
+- `INVOKES_FP`: Function pointer invocation
+- `LOCKS`/`UNLOCKS`: Concurrency primitive usage
+- `EXPANDS_TO`: Macro expansion relationships
+- `TESTS`: Test case tests a function/method
+- `ASSERTS`: Assertion validates behavior
+- `IN_SUITE`: Test case belongs to test suite
+- `IN_TEST`: Assertion belongs to test case
+- `IN_FEATURE`: Scenario belongs to BDD feature
+- `IN_SCENARIO`: Step belongs to BDD scenario
+- `IMPLEMENTS_STEP`: Function implements BDD step
+- `GIVEN_LINKS_TO`/`WHEN_LINKS_TO`/`THEN_LINKS_TO`: BDD step linkages
 
 ## 🔧 Configuration
 
 Configuration is managed through environment variables in `.env` file:
 
-### Gemini (Cloud) Configuration
-- `GEMINI_API_KEY`: Required when  using Google models.
+### Gemini Configuration
+- `GEMINI_API_KEY`: Required when using Google Gemini models
 - `GEMINI_MODEL_ID`: Main model for orchestration (default: `gemini-2.5-pro`)
 - `MODEL_CYPHER_ID`: Model for Cypher generation (default: `gemini-2.5-flash-lite-preview-06-17`)
+
+### OpenAI Configuration
+- `OPENAI_API_KEY`: Required when using OpenAI models
+- `OPENAI_ORCHESTRATOR_MODEL_ID`: Model for orchestration (default: `gpt-4o-mini`)
+- `OPENAI_CYPHER_MODEL_ID`: Model for Cypher generation (default: `gpt-4o-mini`)
+
+### Anthropic Configuration
+- `ANTHROPIC_API_KEY`: Required when using Anthropic models
+- `ANTHROPIC_ORCHESTRATOR_MODEL_ID`: Model for orchestration (default: `claude-3-5-sonnet-20241022`)
+- `ANTHROPIC_CYPHER_MODEL_ID`: Model for Cypher generation (default: `claude-3-5-haiku-20241022`)
 
 ### Local Models Configuration
 - `LOCAL_MODEL_ENDPOINT`: Ollama endpoint (default: `http://localhost:11434/v1`)
@@ -413,11 +530,14 @@ Configuration is managed through environment variables in `.env` file:
 
 ### Key Dependencies
 - **tree-sitter**: Core Tree-sitter library for language-agnostic parsing
-- **tree-sitter-{language}**: Language-specific grammars (Python, JS, TS, Rust, Go, Scala, Java)
+- **tree-sitter-{language}**: Language-specific grammars (Python, JS, TS, Rust, Go, Scala, Java, C++, C)
 - **pydantic-ai**: AI agent framework for RAG orchestration
 - **pymgclient**: Memgraph Python client for graph database operations
 - **loguru**: Advanced logging with structured output
 - **python-dotenv**: Environment variable management
+- **tqdm**: Progress bars for large operations
+- **psutil**: Memory and system monitoring
+- **multiprocessing**: Parallel processing support
 
 ## 🤖 Agentic Workflow & Tools
 
@@ -513,6 +633,17 @@ For issues or questions:
 2. Verify Memgraph connection
 3. Ensure all environment variables are set
 4. Review the graph schema matches your expectations
+
+## 📚 Documentation
+
+- **[SETUP.md](SETUP.md)** - Complete step-by-step setup guide
+- **[MIGRATION.md](MIGRATION.md)** - Guide for upgrading to latest features
+- **[CHANGELOG.md](CHANGELOG.md)** - Detailed list of changes and new features
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Guidelines for contributors
+- **[Examples](examples/)** - Sample scripts demonstrating features:
+  - `graph_export_example.py` - Basic graph analysis
+  - `large_codebase_example.py` - Parallel processing demo
+  - `c_and_test_analysis_example.py` - C language and test analysis
 
 ## Star History
 
