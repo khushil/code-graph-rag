@@ -10,6 +10,7 @@ from tree_sitter import Node, Parser
 from codebase_rag.services.graph_service import MemgraphIngestor
 
 from .language_config import LanguageConfig, get_language_config
+from .parsers.c_parser import CParser
 
 
 class GraphUpdater:
@@ -255,8 +256,12 @@ class GraphUpdater:
                 ("Module", "qualified_name", module_qn),
             )
 
-            self._ingest_top_level_functions(root_node, module_qn, language)
-            self._ingest_classes_and_methods(root_node, module_qn, language)
+            # Use C-specific parser for C files
+            if language == "c":
+                self._ingest_c_file(file_path, source_bytes.decode("utf-8"), module_qn)
+            else:
+                self._ingest_top_level_functions(root_node, module_qn, language)
+                self._ingest_classes_and_methods(root_node, module_qn, language)
 
         except Exception as e:
             logger.error(f"Failed to parse or ingest {file_path}: {e}")
@@ -475,6 +480,161 @@ class GraphUpdater:
                 )
         except Exception as e:
             logger.error(f"    Error parsing {filepath}: {e}")
+
+    def _ingest_c_file(self, file_path: Path, content: str, module_qn: str) -> None:
+        """Ingest C-specific nodes and relationships."""
+        logger.info(f"  Processing C file with enhanced parser: {file_path}")
+        
+        # Create C parser instance
+        c_parser = CParser(self.parsers["c"], self.queries["c"])
+        nodes, relationships = c_parser.parse_file(str(file_path), content)
+        
+        # Ingest nodes
+        for node in nodes:
+            if node.node_type == "function":
+                func_qn = f"{module_qn}.{node.name}"
+                self.ingestor.ensure_node_batch(
+                    "Function",
+                    {
+                        "qualified_name": func_qn,
+                        "name": node.name,
+                        "start_line": node.start_line,
+                        "end_line": node.end_line,
+                        "return_type": node.properties.get("return_type", "void"),
+                        "is_static": node.properties.get("is_static", False),
+                        "is_inline": node.properties.get("is_inline", False),
+                    }
+                )
+                self.function_registry[func_qn] = "Function"
+                self.simple_name_lookup[node.name].add(func_qn)
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "DEFINES",
+                    ("Function", "qualified_name", func_qn),
+                )
+                
+            elif node.node_type == "struct":
+                struct_qn = f"{module_qn}.{node.name}"
+                self.ingestor.ensure_node_batch(
+                    "Struct",
+                    {
+                        "qualified_name": struct_qn,
+                        "name": node.name,
+                        "start_line": node.start_line,
+                        "end_line": node.end_line,
+                        "is_anonymous": node.properties.get("is_anonymous", False),
+                    }
+                )
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "DEFINES_STRUCT",
+                    ("Struct", "qualified_name", struct_qn),
+                )
+                
+            elif node.node_type == "enum":
+                enum_qn = f"{module_qn}.{node.name}"
+                self.ingestor.ensure_node_batch(
+                    "Enum",
+                    {
+                        "qualified_name": enum_qn,
+                        "name": node.name,
+                        "start_line": node.start_line,
+                        "end_line": node.end_line,
+                    }
+                )
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "DEFINES_ENUM",
+                    ("Enum", "qualified_name", enum_qn),
+                )
+                
+            elif node.node_type == "typedef":
+                typedef_qn = f"{module_qn}.{node.name}"
+                self.ingestor.ensure_node_batch(
+                    "Typedef",
+                    {
+                        "qualified_name": typedef_qn,
+                        "name": node.name,
+                        "base_type": node.properties.get("base_type", ""),
+                    }
+                )
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "DEFINES_TYPEDEF",
+                    ("Typedef", "qualified_name", typedef_qn),
+                )
+                
+            elif node.node_type == "macro":
+                macro_qn = f"{module_qn}.{node.name}"
+                self.ingestor.ensure_node_batch(
+                    "Macro",
+                    {
+                        "qualified_name": macro_qn,
+                        "name": node.name,
+                        "value": node.properties.get("value", ""),
+                        "is_function_like": node.properties.get("is_function_like", False),
+                    }
+                )
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "DEFINES_MACRO",
+                    ("Macro", "qualified_name", macro_qn),
+                )
+                
+            elif node.node_type == "global_var":
+                var_qn = f"{module_qn}.{node.name}"
+                self.ingestor.ensure_node_batch(
+                    "GlobalVariable",
+                    {
+                        "qualified_name": var_qn,
+                        "name": node.name,
+                        "type": node.properties.get("type", ""),
+                        "is_static": node.properties.get("is_static", False),
+                        "is_extern": node.properties.get("is_extern", False),
+                        "is_const": node.properties.get("is_const", False),
+                    }
+                )
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "DEFINES_VARIABLE",
+                    ("GlobalVariable", "qualified_name", var_qn),
+                )
+        
+        # Ingest relationships
+        for source, rel_type, target_type, target in relationships:
+            if rel_type == "CALLS":
+                # Handle function calls
+                source_qn = f"{module_qn}.{source}"
+                target_qn = f"{module_qn}.{target}"  # Assume same module for now
+                if source_qn in self.function_registry:
+                    self.ingestor.ensure_relationship_batch(
+                        ("Function", "qualified_name", source_qn),
+                        "CALLS",
+                        ("Function", "qualified_name", target_qn),
+                    )
+            elif rel_type == "TYPE_OF":
+                # Handle typedef relationships
+                source_qn = f"{module_qn}.{source}"
+                self.ingestor.ensure_relationship_batch(
+                    ("Typedef", "qualified_name", source_qn),
+                    "TYPE_OF",
+                    (target_type, "name", target),
+                )
+            elif rel_type == "INCLUDES":
+                # Handle include relationships
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "INCLUDES",
+                    ("File", "path", target),
+                )
+            elif rel_type == "USES_MACRO":
+                # Handle macro usage
+                macro_qn = f"{module_qn}.{target}"
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "USES_MACRO",
+                    ("Macro", "qualified_name", macro_qn),
+                )
 
     def _process_function_calls(self) -> None:
         """Third pass: Process function calls using the cached ASTs."""
