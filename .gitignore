@@ -1,16 +1,61 @@
 # Python-generated files
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
+*.so
 build/
 dist/
 wheels/
 *.egg-info
+*.egg
+MANIFEST
 
 # Virtual environments
 .venv
+venv/
+env/
 .env
 .tmp
 .ruff_cache/
 .mypy_cache/
 .pytest_cache/
 .claude/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Environments
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
