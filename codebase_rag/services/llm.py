@@ -7,9 +7,11 @@ from pydantic_ai.models.openai import (
     OpenAIModel,
     OpenAIResponsesModel,
 )
+from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.google_vertex import GoogleVertexProvider, VertexAiRegion
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.providers.anthropic import AnthropicProvider
 
 from ..config import detect_provider_from_model, settings
 from ..prompts import (
@@ -74,6 +76,14 @@ class CypherGenerator:
                     cypher_model_id,
                     provider=OpenAIProvider(
                         api_key=settings.OPENAI_API_KEY,
+                    ),
+                )
+                system_prompt = CYPHER_SYSTEM_PROMPT
+            elif cypher_provider == "anthropic":
+                llm = AnthropicModel(
+                    cypher_model_id,
+                    provider=AnthropicProvider(
+                        api_key=settings.ANTHROPIC_API_KEY,
                     ),
                 )
                 system_prompt = CYPHER_SYSTEM_PROMPT
@@ -149,19 +159,26 @@ def create_rag_orchestrator(tools: list[Tool]) -> Agent:
                 orchestrator_model_id,
                 provider=provider,
             )
-        elif orchestrator_provider == "local":
+        elif orchestrator_provider == "openai":
+            llm = OpenAIResponsesModel(
+                orchestrator_model_id,
+                provider=OpenAIProvider(
+                    api_key=settings.OPENAI_API_KEY,
+                ),
+            )
+        elif orchestrator_provider == "anthropic":
+            llm = AnthropicModel(
+                orchestrator_model_id,
+                provider=AnthropicProvider(
+                    api_key=settings.ANTHROPIC_API_KEY,
+                ),
+            )
+        else:  # local provider
             llm = OpenAIModel(  # type: ignore
                 orchestrator_model_id,
                 provider=OpenAIProvider(
                     api_key=settings.LOCAL_MODEL_API_KEY,
                     base_url=str(settings.LOCAL_MODEL_ENDPOINT),
-                ),
-            )
-        else:  # openai provider
-            llm = OpenAIResponsesModel(
-                orchestrator_model_id,
-                provider=OpenAIProvider(
-                    api_key=settings.OPENAI_API_KEY,
                 ),
             )
 
