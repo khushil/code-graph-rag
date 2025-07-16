@@ -379,6 +379,31 @@ def start(
     cypher_model: str | None = typer.Option(
         None, "--cypher-model", help="Specify the Cypher generator model ID"
     ),
+    parallel: bool = typer.Option(
+        False,
+        "--parallel",
+        help="Use parallel processing for faster ingestion (REQ-SCL-2)",
+    ),
+    workers: int | None = typer.Option(
+        None,
+        "--workers",
+        help="Number of parallel workers (default: 80% of CPU cores)",
+    ),
+    folder_filter: str | None = typer.Option(
+        None,
+        "--folder-filter",
+        help="Only process files in specified folder (REQ-SCL-1)",
+    ),
+    file_pattern: str | None = typer.Option(
+        None,
+        "--file-pattern",
+        help="Only process files matching pattern (e.g., '*.py') (REQ-SCL-1)",
+    ),
+    skip_tests: bool = typer.Option(
+        False,
+        "--skip-tests",
+        help="Skip test files during ingestion (REQ-SCL-1)",
+    ),
 ) -> None:
     """Starts the Codebase RAG CLI."""
     target_repo_path = repo_path or settings.TARGET_REPO_PATH
@@ -405,12 +430,51 @@ def start(
                 console.print("[bold yellow]Cleaning database...[/bold yellow]")
                 ingestor.clean_database()
             ingestor.ensure_constraints()
+            
+            # Create indexes for better query performance
+            from .graph_indexing import GraphIndexManager
+            index_manager = GraphIndexManager(ingestor)
+            index_manager.create_indexes()
 
             # Load parsers and queries
             parsers, queries = load_parsers()
 
-            updater = GraphUpdater(ingestor, repo_to_update, parsers, queries)
-            updater.run()
+            # Use parallel processing if requested
+            if parallel:
+                from .parallel_processor import ParallelProcessor
+                from .progress_reporter import ProgressReporter
+                
+                console.print(f"[bold cyan]Using parallel processing with {workers or 'auto'} workers[/bold cyan]")
+                
+                processor = ParallelProcessor(
+                    ingestor, repo_to_update, parsers, queries, 
+                    max_workers=workers
+                )
+                
+                # Collect files with filters
+                files = processor.collect_files(
+                    folder_filter=folder_filter,
+                    file_pattern=file_pattern,
+                    skip_tests=skip_tests
+                )
+                
+                if not files:
+                    console.print("[bold yellow]No files found matching criteria[/bold yellow]")
+                    return
+                
+                # Process files in parallel with progress reporting
+                reporter = ProgressReporter(len(files), show_eta=True, show_rate=True)
+                reporter.start()
+                
+                try:
+                    processor.process_files_parallel(files)
+                finally:
+                    reporter.stop()
+                    ingestor.flush_all()
+            else:
+                # Use traditional sequential processing
+                updater = GraphUpdater(ingestor, repo_to_update, parsers, queries)
+                updater.run()
 
             # Export graph if output file specified
             if output:

@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "loguru>=0.7.3",
-    "pydantic-ai-slim[google,openai,vertexai]>=0.2.18",
+    "pydantic-ai-slim[google,openai,vertexai,anthropic]>=0.2.18",
     "pydantic-settings>=2.0.0",
     "pymgclient>=1.4.0",
     "python-dotenv>=1.1.0",
@@ -18,6 +18,8 @@ dependencies = [
     "rich>=13.7.1",
     "prompt-toolkit>=3.0.0",
     "diff-match-patch>=20241021",
+    "tqdm>=4.67.1",
+    "psutil>=5.9.0",
 ]
 
 [tool.setuptools]
@@ -44,6 +46,7 @@ treesitter-full = [
     "tree-sitter-java>=0.23.5",
     "tree-sitter-cpp>=0.23.0",
     "tree-sitter-c==0.21.3",
+    "tqdm>=4.66.0",
 ]
 
 [tool.ruff]

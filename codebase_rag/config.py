@@ -9,12 +9,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 load_dotenv()
 
 
-def detect_provider_from_model(model_name: str) -> Literal["gemini", "openai", "local"]:
+def detect_provider_from_model(model_name: str) -> Literal["gemini", "openai", "anthropic", "local"]:
     """Detect the provider based on model name patterns."""
     if model_name.startswith("gemini-"):
         return "gemini"
     elif model_name.startswith("gpt-") or model_name.startswith("o1-"):
         return "openai"
+    elif model_name.startswith("claude-"):
+        return "anthropic"
     else:
         return "local"
 
@@ -57,6 +59,10 @@ class AppConfig(BaseSettings):
     OPENAI_ORCHESTRATOR_MODEL_ID: str = "gpt-4o-mini"
     OPENAI_CYPHER_MODEL_ID: str = "gpt-4o-mini"
 
+    ANTHROPIC_API_KEY: str | None = None
+    ANTHROPIC_ORCHESTRATOR_MODEL_ID: str = "claude-3-5-sonnet-20241022"
+    ANTHROPIC_CYPHER_MODEL_ID: str = "claude-3-5-haiku-20241022"
+
     TARGET_REPO_PATH: str = "."
     SHELL_COMMAND_TIMEOUT: int = 30
 
@@ -89,6 +95,12 @@ class AppConfig(BaseSettings):
             if not self.OPENAI_API_KEY:
                 raise ValueError(
                     "Configuration Error: OPENAI_API_KEY is required when using OpenAI models."
+                )
+        
+        if "anthropic" in providers_in_use:
+            if not self.ANTHROPIC_API_KEY:
+                raise ValueError(
+                    "Configuration Error: ANTHROPIC_API_KEY is required when using Anthropic models."
                 )
         return
 
