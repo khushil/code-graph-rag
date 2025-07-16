@@ -93,7 +93,7 @@ class TestDetector:
                 "imports": [],
                 "decorators": [],
                 "functions": [r"describe\s*\(", r"test\s*\(", r"it\s*\(", r"beforeEach\s*\("],
-                "assertions": [r"expect\s*\(.*\)\s*\.to", r"expect\s*\(.*\)\s*\.not"],
+                "assertions": [r"expect\s*\(", r"\.toBe", r"\.toEqual"],
             },
             "mocha": {
                 "imports": [r"require\s*\(\s*['\"]mocha", r"import.*from\s+['\"]mocha"],
@@ -222,7 +222,9 @@ class TestDetector:
                     score += 1
                     
             # If we have a reasonable score, this is likely the framework
-            if score >= 3:
+            # Lower threshold for JavaScript since it often doesn't have imports
+            threshold = 2 if language == "javascript" else 3
+            if score >= threshold:
                 return TestFrameworkInfo(
                     language=language,
                     framework=framework,

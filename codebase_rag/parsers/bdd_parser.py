@@ -265,7 +265,7 @@ class BDDParser:
         
         for pattern, function_name, step_type in step_definitions:
             # Check if step type matches (Given/When/Then)
-            if step_type != "step" and step_type != step.keyword.lower():
+            if step_type != "step" and step_type.lower() != step.keyword.lower():
                 continue
                 
             # Try to match the pattern
@@ -276,7 +276,15 @@ class BDDParser:
         
     def _matches_pattern(self, text: str, pattern: str) -> bool:
         """Check if a step text matches a step definition pattern."""
-        # Convert step definition pattern to regex
+        # If pattern looks like it's already a regex (contains regex metacharacters)
+        # try to use it directly
+        if any(char in pattern for char in r'()[]{}.*+?^$\|'):
+            try:
+                return bool(re.match(f"^{pattern}$", text))
+            except re.error:
+                pass
+        
+        # Otherwise, convert step definition pattern to regex
         # Replace parameter placeholders with regex groups
         regex_pattern = pattern
         
@@ -285,18 +293,10 @@ class BDDParser:
         regex_pattern = re.sub(r'\{[^}]+\}', r'(.+)', regex_pattern)
         regex_pattern = re.sub(r'<[^>]+>', r'(.+)', regex_pattern)
         
-        # Escape special regex characters except our groups
-        regex_pattern = re.escape(regex_pattern)
-        regex_pattern = regex_pattern.replace(r'\(.+\)', '(.+)')
-        
         try:
             return bool(re.match(f"^{regex_pattern}$", text))
         except re.error:
-            # If pattern is already a regex, try direct match
-            try:
-                return bool(re.match(f"^{pattern}$", text))
-            except re.error:
-                return False
+            return False
                 
     def _is_keyword(self, line: str, keywords: List[str]) -> bool:
         """Check if line starts with any of the keywords."""

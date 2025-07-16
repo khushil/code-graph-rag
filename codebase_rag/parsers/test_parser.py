@@ -135,7 +135,7 @@ class TestParser:
         tree = self.parser.parse(bytes(content, "utf8"))
         
         # Find test classes
-        class_query = self.queries.get("classes", {}).get("query")
+        class_query = self.queries.get("classes")
         if class_query:
             class_captures = class_query.captures(tree.root_node)
             for class_node in class_captures.get("class", []):
@@ -157,7 +157,7 @@ class TestParser:
                     self._extract_test_methods(class_node, class_name, framework_info)
                     
         # Find standalone test functions
-        function_query = self.queries.get("functions", {}).get("query")
+        function_query = self.queries.get("functions")
         if function_query:
             function_captures = function_query.captures(tree.root_node)
             for func_node in function_captures.get("function", []):
@@ -187,7 +187,7 @@ class TestParser:
         tree = self.parser.parse(bytes(content, "utf8"))
         
         # Find test functions
-        function_query = self.queries.get("functions", {}).get("query")
+        function_query = self.queries.get("functions")
         if function_query:
             function_captures = function_query.captures(tree.root_node)
             for func_node in function_captures.get("function", []):
@@ -315,9 +315,27 @@ class TestParser:
                         
     def _get_node_name(self, node: Node) -> Optional[str]:
         """Extract name from various node types."""
+        # Try standard name field first
         name_node = node.child_by_field_name("name")
         if name_node:
             return name_node.text.decode("utf-8")
+            
+        # For C functions, the name is in the declarator
+        if self.language == "c" and node.type == "function_definition":
+            declarator = node.child_by_field_name("declarator")
+            if declarator:
+                # For function_declarator, the first child is usually the identifier
+                if declarator.type == "function_declarator":
+                    ident = declarator.child(0)
+                    if ident and ident.type == "identifier":
+                        return ident.text.decode("utf-8")
+                elif declarator.type == "pointer_declarator":
+                    # Handle function pointers
+                    func_decl = declarator.child_by_field_name("declarator")
+                    if func_decl and func_decl.type == "function_declarator":
+                        ident = func_decl.child(0)
+                        if ident and ident.type == "identifier":
+                            return ident.text.decode("utf-8")
             
         # For some languages, the identifier might be elsewhere
         for child in node.named_children:
