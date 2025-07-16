@@ -15,6 +15,7 @@ from .parsers.test_parser import TestParser
 from .parsers.test_detector import TestDetector
 from .parsers.bdd_parser import BDDParser
 from .analysis.data_flow import DataFlowAnalyzer
+from .analysis.dependencies import DependencyAnalyzer
 
 
 class GraphUpdater:
@@ -36,6 +37,8 @@ class GraphUpdater:
         self.function_registry: dict[str, str] = {}  # {qualified_name: type}
         self.simple_name_lookup: dict[str, set[str]] = defaultdict(set)
         self.ast_cache: dict[Path, tuple[Node, str]] = {}
+        self.module_dependencies: dict[str, set[str]] = defaultdict(set)  # Track module dependencies
+        self.module_exports: dict[str, list] = defaultdict(list)  # Track module exports
         self.ignore_dirs = {
             ".git",
             "venv",
@@ -69,6 +72,9 @@ class GraphUpdater:
         )
         logger.info("--- Pass 3: Processing Function Calls from AST Cache ---")
         self._process_function_calls()
+        
+        logger.info("--- Pass 4: Detecting Circular Dependencies ---")
+        self._detect_and_report_circular_dependencies()
 
         logger.info("\n--- Analysis complete. Flushing all data to database... ---")
         self.ingestor.flush_all()
@@ -281,6 +287,10 @@ class GraphUpdater:
             # Perform data flow analysis if enabled
             if language in ["python", "javascript", "typescript", "c"]:
                 self._analyze_data_flow(file_path, source_bytes.decode("utf-8"), module_qn, language)
+                
+            # Perform dependency analysis
+            if language in ["python", "javascript", "typescript", "c"]:
+                self._analyze_dependencies(file_path, source_bytes.decode("utf-8"), module_qn, language)
 
         except Exception as e:
             logger.error(f"Failed to parse or ingest {file_path}: {e}")
@@ -1246,6 +1256,97 @@ class GraphUpdater:
         except Exception as e:
             logger.error(f"Failed to analyze data flow in {file_path}: {e}")
     
+    def _analyze_dependencies(self, file_path: Path, content: str, module_qn: str, language: str) -> None:
+        """Analyze module dependencies and exports."""
+        logger.info(f"  Analyzing dependencies in: {file_path}")
+        
+        try:
+            # Create dependency analyzer
+            analyzer = DependencyAnalyzer(self.parsers[language], self.queries[language], language)
+            exports, imports = analyzer.analyze_file(str(file_path), content, module_qn)
+            
+            # Store exports for this module
+            self.module_exports[module_qn] = exports
+            
+            # Track dependencies
+            for imp in imports:
+                # Resolve the import to a module qualified name
+                dep_module = self._resolve_import_to_module(imp.source_module, module_qn, language)
+                if dep_module:
+                    self.module_dependencies[module_qn].add(dep_module)
+                    
+                    # Create IMPORTS relationship
+                    self.ingestor.ensure_relationship_batch(
+                        (("Module", "qualified_name", module_qn),
+                         "IMPORTS",
+                         ("Module", "qualified_name", dep_module),
+                         {"symbol": imp.symbol, "line_number": imp.line_number})
+                    )
+                    
+                    # If importing specific symbol, create REQUIRES relationship
+                    if imp.symbol != "*" and imp.import_type == "named":
+                        # Try to find the target symbol
+                        target_qn = f"{dep_module}.{imp.symbol}"
+                        self.ingestor.ensure_relationship_batch(
+                            (("Module", "qualified_name", module_qn),
+                             "REQUIRES",
+                             ("", "qualified_name", target_qn),  # Could be function, class, or variable
+                             {"line_number": imp.line_number})
+                        )
+            
+            # Create EXPORTS relationships for this module's exports
+            for export in exports:
+                # Create relationship from module to exported symbol
+                symbol_qn = f"{module_qn}.{export.symbol}"
+                symbol_label = self._determine_export_node_type(export.export_type)
+                
+                self.ingestor.ensure_relationship_batch(
+                    (("Module", "qualified_name", module_qn),
+                     "EXPORTS",
+                     (symbol_label, "qualified_name", symbol_qn),
+                     {"line_number": export.line_number, "is_default": export.is_default})
+                )
+            
+            logger.info(f"  Found {len(exports)} exports and {len(imports)} imports")
+            
+        except Exception as e:
+            logger.error(f"Failed to analyze dependencies in {file_path}: {e}")
+    
+    def _resolve_import_to_module(self, import_path: str, current_module: str, language: str) -> Optional[str]:
+        """Resolve an import path to a module qualified name."""
+        if language == "python":
+            # Handle relative imports
+            if import_path.startswith("."):
+                # Count dots for relative level
+                level = len(import_path) - len(import_path.lstrip("."))
+                relative_path = import_path[level:]
+                
+                # Go up 'level' directories from current module
+                parts = current_module.split(".")
+                if level < len(parts):
+                    base = ".".join(parts[:-level])
+                    if relative_path:
+                        return f"{base}.{relative_path}"
+                    else:
+                        return base
+            else:
+                # Absolute import - return as is
+                return import_path
+        
+        # For other languages, return the import path as is
+        return import_path
+    
+    def _determine_export_node_type(self, export_type: str) -> str:
+        """Determine the graph node label based on export type."""
+        type_mapping = {
+            "function": "Function",
+            "class": "Class", 
+            "variable": "Variable",
+            "namespace": "Module",
+            "default": "Module"
+        }
+        return type_mapping.get(export_type, "Module")
+    
     def _determine_node_type(self, qualified_name: str) -> Optional[str]:
         """Determine the node type from a qualified name."""
         if qualified_name.startswith("return_of_"):
@@ -1257,3 +1358,29 @@ class GraphUpdater:
             if "." in qualified_name:
                 return "Variable"
             return None
+    
+    def _detect_and_report_circular_dependencies(self) -> None:
+        """Detect and report circular dependencies in the module graph."""
+        try:
+            # Create a dependency analyzer to use its circular detection
+            analyzer = DependencyAnalyzer(None, {}, "")
+            cycles = analyzer.detect_circular_dependencies(self.module_dependencies)
+            
+            if cycles:
+                logger.warning(f"  Found {len(cycles)} circular dependencies:")
+                for i, cycle in enumerate(cycles, 1):
+                    logger.warning(f"    Cycle {i}: {' -> '.join(cycle)}")
+                    
+                    # Create CIRCULAR_DEPENDENCY relationships in the graph
+                    for j in range(len(cycle) - 1):
+                        self.ingestor.ensure_relationship_batch(
+                            (("Module", "qualified_name", cycle[j]),
+                             "CIRCULAR_DEPENDENCY",
+                             ("Module", "qualified_name", cycle[j + 1]),
+                             {"cycle_id": i})
+                        )
+            else:
+                logger.info("  No circular dependencies detected")
+                
+        except Exception as e:
+            logger.error(f"Failed to detect circular dependencies: {e}")
