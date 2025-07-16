@@ -19,6 +19,7 @@ from .analysis.dependencies import DependencyAnalyzer
 from .analysis.security import SecurityAnalyzer
 from .analysis.inheritance import InheritanceAnalyzer
 from .version_control.git_analyzer import GitAnalyzer
+from .parsers.config_parser import ConfigParser
 
 
 class GraphUpdater:
@@ -208,6 +209,9 @@ class GraphUpdater:
                 elif filepath.suffix == ".feature":
                     # Parse BDD feature files
                     self._parse_bdd_file(filepath)
+                elif self._is_config_file(filepath):
+                    # Parse configuration files
+                    self._parse_config_file(filepath)
 
     def _get_docstring(self, node: Node) -> str | None:
         """Extracts the docstring from a function or class node's body."""
@@ -1673,6 +1677,138 @@ class GraphUpdater:
                 
         except Exception as e:
             logger.error(f"Failed to analyze Git info for {file_path}: {e}")
+    
+    def _is_config_file(self, filepath: Path) -> bool:
+        """Check if a file is a configuration file."""
+        config_parser = ConfigParser()
+        return filepath.suffix.lower() in config_parser.SUPPORTED_FORMATS or filepath.name in [
+            'Makefile', 'makefile', 'Dockerfile', 'docker-compose.yml', 'docker-compose.yaml',
+            '.gitignore', '.dockerignore', 'requirements.txt', 'package.json', 'package-lock.json',
+            'yarn.lock', 'Gemfile', 'Gemfile.lock', 'Cargo.toml', 'Cargo.lock', 'go.mod', 'go.sum'
+        ]
+    
+    def _parse_config_file(self, filepath: Path) -> None:
+        """Parse and ingest configuration files."""
+        logger.info(f"  Parsing configuration file: {filepath}")
+        
+        try:
+            # Create config parser
+            config_parser = ConfigParser()
+            config_file = config_parser.parse_file(filepath)
+            
+            if not config_file:
+                logger.warning(f"    Failed to parse config file: {filepath}")
+                return
+            
+            # Create ConfigFile node
+            relative_path = filepath.relative_to(self.repo_path)
+            config_qn = f"{self.project_name}.config.{relative_path.stem}"
+            
+            self.ingestor.ensure_node_batch(
+                "ConfigFile",
+                {
+                    "qualified_name": config_qn,
+                    "path": str(relative_path),
+                    "format": config_file.format,
+                    "setting_count": len(config_file.settings),
+                    "has_environments": bool(config_file.environments),
+                    "environment_list": ",".join(config_file.environments) if config_file.environments else ""
+                }
+            )
+            
+            # Link to project
+            self.ingestor.ensure_relationship_batch(
+                ("Project", "name", self.project_name),
+                "HAS_CONFIG",
+                ("ConfigFile", "qualified_name", config_qn)
+            )
+            
+            # Create setting nodes for important settings
+            for setting in config_file.settings[:100]:  # Limit to first 100 settings
+                setting_qn = f"{config_qn}.{setting.get_full_path()}"
+                
+                self.ingestor.ensure_node_batch(
+                    "ConfigSetting",
+                    {
+                        "qualified_name": setting_qn,
+                        "key": setting.key,
+                        "value": str(setting.value)[:500],  # Limit value length
+                        "path": setting.get_full_path(),
+                        "type": setting.setting_type
+                    }
+                )
+                
+                # Link setting to config file
+                self.ingestor.ensure_relationship_batch(
+                    ("ConfigFile", "qualified_name", config_qn),
+                    "DEFINES_SETTING",
+                    ("ConfigSetting", "qualified_name", setting_qn)
+                )
+            
+            # Create dependency relationships
+            for dep in config_file.dependencies:
+                # Check if it's an internal module reference
+                if dep.startswith(self.project_name):
+                    # Internal dependency
+                    self.ingestor.ensure_relationship_batch(
+                        ("ConfigFile", "qualified_name", config_qn),
+                        "REFERENCES_MODULE",
+                        ("Module", "qualified_name", dep)
+                    )
+                else:
+                    # External dependency
+                    self.ingestor.ensure_node_batch("ExternalPackage", {"name": dep})
+                    self.ingestor.ensure_relationship_batch(
+                        ("ConfigFile", "qualified_name", config_qn),
+                        "DEPENDS_ON",
+                        ("ExternalPackage", "name", dep)
+                    )
+            
+            # Special handling for specific file types
+            if filepath.name == "package.json":
+                self._parse_package_json_specifics(config_file, config_qn)
+            elif filepath.name in ["requirements.txt", "setup.py", "setup.cfg"]:
+                self._parse_python_dependencies(config_file, config_qn)
+            elif filepath.name == "Dockerfile":
+                self._parse_dockerfile_specifics(config_file, config_qn)
+            
+            logger.info(f"    Successfully parsed {config_file.format} file with {len(config_file.settings)} settings")
+            
+        except Exception as e:
+            logger.error(f"    Error parsing config file {filepath}: {e}")
+    
+    def _parse_package_json_specifics(self, config_file, config_qn: str) -> None:
+        """Parse package.json specific information."""
+        raw = config_file.raw_content
+        
+        # Handle scripts
+        if "scripts" in raw:
+            for script_name, script_cmd in raw["scripts"].items():
+                self.ingestor.ensure_node_batch(
+                    "BuildScript",
+                    {
+                        "name": script_name,
+                        "command": script_cmd,
+                        "type": "npm"
+                    }
+                )
+                self.ingestor.ensure_relationship_batch(
+                    ("ConfigFile", "qualified_name", config_qn),
+                    "DEFINES_SCRIPT",
+                    ("BuildScript", "name", script_name)
+                )
+    
+    def _parse_python_dependencies(self, config_file, config_qn: str) -> None:
+        """Parse Python dependency files."""
+        # Dependencies are already handled in the general parsing
+        # This is for any Python-specific handling
+        pass
+    
+    def _parse_dockerfile_specifics(self, config_file, config_qn: str) -> None:
+        """Parse Dockerfile specific information."""
+        # Could extract base images, exposed ports, etc.
+        # For now, basic parsing is sufficient
+        pass
     
     def _analyze_repository_git_info(self) -> None:
         """Analyze repository-level Git information."""
