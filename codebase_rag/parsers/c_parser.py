@@ -5,6 +5,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from tree_sitter import Node, Parser
 from loguru import logger
 
+from .c_pointer_analyzer import CPointerAnalyzer
+from .c_kernel_analyzer import CKernelAnalyzer
+
 
 @dataclass
 class CNode:
@@ -46,6 +49,83 @@ class CParser:
         self._extract_preprocessor_directives(tree.root_node, content)
         self._extract_global_variables(tree.root_node, content)
         self._extract_function_calls(tree.root_node, content)
+        
+        # Perform pointer analysis
+        pointer_analyzer = CPointerAnalyzer()
+        pointer_info, pointer_relationships = pointer_analyzer.analyze_pointers(tree.root_node, content)
+        
+        # Add pointer relationships
+        self.relationships.extend(pointer_relationships)
+        
+        # Add function pointer nodes
+        for fp_name, fp_info in pointer_analyzer.function_pointers.items():
+            self.nodes.append(CNode(
+                node_type="function_pointer",
+                name=fp_name,
+                file_path=file_path,
+                start_line=0,  # Would need to track from declarator
+                end_line=0,
+                properties={
+                    "return_type": fp_info.return_type,
+                    "param_types": fp_info.param_types,
+                    "assigned_functions": fp_info.assigned_functions,
+                }
+            ))
+        
+        # Perform kernel-specific analysis
+        kernel_analyzer = CKernelAnalyzer()
+        syscalls, module_info, concurrency_primitives, kernel_relationships = kernel_analyzer.analyze_kernel_patterns(
+            tree.root_node, content, file_path
+        )
+        
+        # Add syscall nodes
+        for syscall_name, syscall_info in syscalls.items():
+            self.nodes.append(CNode(
+                node_type="syscall",
+                name=syscall_name,
+                file_path=file_path,
+                start_line=syscall_info.location[0],
+                end_line=syscall_info.location[0],
+                properties={
+                    "param_count": syscall_info.param_count,
+                    "params": syscall_info.params,
+                }
+            ))
+        
+        # Add concurrency primitive nodes
+        for lock_name, lock_info in concurrency_primitives.items():
+            self.nodes.append(CNode(
+                node_type="concurrency_primitive",
+                name=lock_name,
+                file_path=file_path,
+                start_line=0,
+                end_line=0,
+                properties={
+                    "primitive_type": lock_info.primitive_type,
+                    "is_static": lock_info.is_static,
+                    "is_global": lock_info.is_global,
+                    "operations": lock_info.operations,
+                }
+            ))
+        
+        # Add kernel relationships
+        self.relationships.extend(kernel_relationships)
+        
+        # Add module info as properties of the file
+        if module_info.exported_symbols or module_info.init_function:
+            self.nodes.append(CNode(
+                node_type="kernel_module",
+                name=file_path.split('/')[-1].replace('.c', ''),
+                file_path=file_path,
+                start_line=0,
+                end_line=0,
+                properties={
+                    "exported_symbols": module_info.exported_symbols,
+                    "init_function": module_info.init_function,
+                    "exit_function": module_info.exit_function,
+                    "module_params": list(module_info.module_params.keys()),
+                }
+            ))
         
         return self.nodes, self.relationships
         

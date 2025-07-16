@@ -599,6 +599,75 @@ class GraphUpdater:
                     "DEFINES_VARIABLE",
                     ("GlobalVariable", "qualified_name", var_qn),
                 )
+                
+            elif node.node_type == "function_pointer":
+                fp_qn = f"{module_qn}.{node.name}"
+                self.ingestor.ensure_node_batch(
+                    "FunctionPointer",
+                    {
+                        "qualified_name": fp_qn,
+                        "name": node.name,
+                        "return_type": node.properties.get("return_type", ""),
+                        "param_types": node.properties.get("param_types", []),
+                    }
+                )
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "DEFINES_FUNCTION_POINTER",
+                    ("FunctionPointer", "qualified_name", fp_qn),
+                )
+                
+            elif node.node_type == "syscall":
+                syscall_qn = f"{module_qn}.sys_{node.name}"
+                self.ingestor.ensure_node_batch(
+                    "Syscall",
+                    {
+                        "qualified_name": syscall_qn,
+                        "name": node.name,
+                        "param_count": node.properties.get("param_count", 0),
+                    }
+                )
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "DEFINES_SYSCALL",
+                    ("Syscall", "qualified_name", syscall_qn),
+                )
+                
+            elif node.node_type == "concurrency_primitive":
+                lock_qn = f"{module_qn}.{node.name}"
+                self.ingestor.ensure_node_batch(
+                    "ConcurrencyPrimitive",
+                    {
+                        "qualified_name": lock_qn,
+                        "name": node.name,
+                        "primitive_type": node.properties.get("primitive_type", ""),
+                        "is_static": node.properties.get("is_static", False),
+                        "is_global": node.properties.get("is_global", False),
+                    }
+                )
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "DEFINES_LOCK",
+                    ("ConcurrencyPrimitive", "qualified_name", lock_qn),
+                )
+                
+            elif node.node_type == "kernel_module":
+                km_qn = f"{module_qn}.module"
+                self.ingestor.ensure_node_batch(
+                    "KernelModule",
+                    {
+                        "qualified_name": km_qn,
+                        "name": node.name,
+                        "exported_symbols": node.properties.get("exported_symbols", []),
+                        "init_function": node.properties.get("init_function", ""),
+                        "exit_function": node.properties.get("exit_function", ""),
+                    }
+                )
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "IS_KERNEL_MODULE",
+                    ("KernelModule", "qualified_name", km_qn),
+                )
         
         # Ingest relationships
         for source, rel_type, target_type, target in relationships:
@@ -634,6 +703,57 @@ class GraphUpdater:
                     ("Module", "qualified_name", module_qn),
                     "USES_MACRO",
                     ("Macro", "qualified_name", macro_qn),
+                )
+            elif rel_type == "ASSIGNS_FP":
+                # Handle function pointer assignments
+                fp_qn = f"{module_qn}.{source}"
+                func_qn = f"{module_qn}.{target}"
+                self.ingestor.ensure_relationship_batch(
+                    ("FunctionPointer", "qualified_name", fp_qn),
+                    "ASSIGNS_FP",
+                    ("Function", "qualified_name", func_qn),
+                )
+            elif rel_type == "INVOKES_FP":
+                # Handle function pointer invocations
+                fp_qn = f"{module_qn}.{source}"
+                func_qn = f"{module_qn}.{target}"
+                self.ingestor.ensure_relationship_batch(
+                    ("FunctionPointer", "qualified_name", fp_qn),
+                    "INVOKES_FP", 
+                    ("Function", "qualified_name", func_qn),
+                )
+            elif rel_type in ["LOCKS", "UNLOCKS"]:
+                # Handle lock operations
+                func_qn = f"{module_qn}.{source}"
+                lock_qn = f"{module_qn}.{target}"
+                self.ingestor.ensure_relationship_batch(
+                    ("Function", "qualified_name", func_qn),
+                    rel_type,
+                    ("ConcurrencyPrimitive", "qualified_name", lock_qn),
+                )
+            elif rel_type == "EXPORTS":
+                # Handle symbol exports
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "EXPORTS",
+                    ("Symbol", "name", target),
+                )
+            elif rel_type in ["MODULE_INIT", "MODULE_EXIT"]:
+                # Handle module init/exit functions
+                func_qn = f"{module_qn}.{target}"
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    rel_type,
+                    ("Function", "qualified_name", func_qn),
+                )
+            elif rel_type == "IMPLEMENTS_SYSCALL":
+                # Handle syscall implementations
+                func_qn = f"{module_qn}.{source}"
+                syscall_qn = f"{module_qn}.sys_{target}"
+                self.ingestor.ensure_relationship_batch(
+                    ("Function", "qualified_name", func_qn),
+                    "IMPLEMENTS_SYSCALL",
+                    ("Syscall", "qualified_name", syscall_qn),
                 )
 
     def _process_function_calls(self) -> None:
