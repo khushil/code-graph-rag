@@ -43,6 +43,7 @@ treesitter-full = [
     "tree-sitter-scala>=0.24.0",
     "tree-sitter-java>=0.23.5",
     "tree-sitter-cpp>=0.23.0",
+    "tree-sitter-c==0.21.3",
 ]
 
 [tool.ruff]

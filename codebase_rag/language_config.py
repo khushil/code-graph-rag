@@ -127,6 +127,18 @@ LANGUAGE_CONFIGS = {
         module_node_types=["translation_unit", "namespace_definition"],
         call_node_types=["call_expression"],
     ),
+    "c": LanguageConfig(
+        name="c",
+        file_extensions=[".c", ".h"],
+        function_node_types=["function_definition"],
+        class_node_types=[
+            "struct_specifier",
+            "union_specifier",
+            "enum_specifier",
+        ],
+        module_node_types=["translation_unit"],
+        call_node_types=["call_expression"],
+    ),
 }
 
 
