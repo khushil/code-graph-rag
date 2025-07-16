@@ -11,6 +11,9 @@ from codebase_rag.services.graph_service import MemgraphIngestor
 
 from .language_config import LanguageConfig, get_language_config
 from .parsers.c_parser import CParser
+from .parsers.test_parser import TestParser
+from .parsers.test_detector import TestDetector
+from .parsers.bdd_parser import BDDParser
 
 
 class GraphUpdater:
@@ -180,6 +183,9 @@ class GraphUpdater:
                     self.parse_and_ingest_file(filepath, lang_config.name)
                 elif file_name == "pyproject.toml":
                     self._parse_dependencies(filepath)
+                elif filepath.suffix == ".feature":
+                    # Parse BDD feature files
+                    self._parse_bdd_file(filepath)
 
     def _get_docstring(self, node: Node) -> str | None:
         """Extracts the docstring from a function or class node's body."""
@@ -256,10 +262,18 @@ class GraphUpdater:
                 ("Module", "qualified_name", module_qn),
             )
 
-            # Use C-specific parser for C files
-            if language == "c":
+            # Check if this is a test file
+            test_detector = TestDetector()
+            is_test = test_detector.is_test_file(str(file_path), language)
+            
+            if is_test:
+                # Use test parser for test files
+                self._ingest_test_file(file_path, source_bytes.decode("utf-8"), module_qn, language)
+            elif language == "c":
+                # Use C-specific parser for C files
                 self._ingest_c_file(file_path, source_bytes.decode("utf-8"), module_qn)
             else:
+                # Use regular parsing for other files
                 self._ingest_top_level_functions(root_node, module_qn, language)
                 self._ingest_classes_and_methods(root_node, module_qn, language)
 
@@ -962,3 +976,189 @@ class GraphUpdater:
                 return True
 
         return False
+
+    def _ingest_test_file(self, file_path: Path, content: str, module_qn: str, language: str) -> None:
+        """Ingest test file with test-specific parsing."""
+        logger.info(f"  Processing test file: {file_path}")
+        
+        # Create test parser
+        test_parser = TestParser(self.parsers[language], self.queries[language], language)
+        nodes, relationships = test_parser.parse_test_file(str(file_path), content)
+        
+        # Ingest test nodes
+        for node in nodes:
+            if node.node_type == "test_suite":
+                suite_qn = f"{module_qn}.{node.name}"
+                self.ingestor.ensure_node_batch(
+                    "TestSuite",
+                    {
+                        "qualified_name": suite_qn,
+                        "name": node.name,
+                        "framework": node.properties.get("framework", ""),
+                        "start_line": node.start_line,
+                        "end_line": node.end_line,
+                    }
+                )
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "CONTAINS_TEST_SUITE",
+                    ("TestSuite", "qualified_name", suite_qn),
+                )
+                
+            elif node.node_type == "test_case":
+                test_qn = f"{module_qn}.{node.name}"
+                self.ingestor.ensure_node_batch(
+                    "TestCase",
+                    {
+                        "qualified_name": test_qn,
+                        "name": node.name,
+                        "framework": node.properties.get("framework", ""),
+                        "start_line": node.start_line,
+                        "end_line": node.end_line,
+                    }
+                )
+                parent_suite = node.properties.get("parent_suite")
+                if parent_suite:
+                    parent_qn = f"{module_qn}.{parent_suite}"
+                    self.ingestor.ensure_relationship_batch(
+                        ("TestSuite", "qualified_name", parent_qn),
+                        "CONTAINS_TEST",
+                        ("TestCase", "qualified_name", test_qn),
+                    )
+                else:
+                    self.ingestor.ensure_relationship_batch(
+                        ("Module", "qualified_name", module_qn),
+                        "CONTAINS_TEST",
+                        ("TestCase", "qualified_name", test_qn),
+                    )
+                    
+            elif node.node_type == "test_function":
+                test_qn = f"{module_qn}.{node.name}"
+                self.ingestor.ensure_node_batch(
+                    "TestFunction",
+                    {
+                        "qualified_name": test_qn,
+                        "name": node.name,
+                        "framework": node.properties.get("framework", ""),
+                        "start_line": node.start_line,
+                        "end_line": node.end_line,
+                    }
+                )
+                self.ingestor.ensure_relationship_batch(
+                    ("Module", "qualified_name", module_qn),
+                    "CONTAINS_TEST",
+                    ("TestFunction", "qualified_name", test_qn),
+                )
+                
+        # Ingest test relationships
+        for source, rel_type, target_type, target in relationships:
+            if rel_type == "CONTAINS_TEST":
+                source_qn = f"{module_qn}.{source}"
+                target_qn = f"{module_qn}.{target}"
+                self.ingestor.ensure_relationship_batch(
+                    ("TestSuite", "qualified_name", source_qn),
+                    "CONTAINS_TEST",
+                    ("TestCase", "qualified_name", target_qn),
+                )
+            elif rel_type == "CONTAINS_SUITE":
+                source_qn = f"{module_qn}.{source}"
+                target_qn = f"{module_qn}.{target}"
+                self.ingestor.ensure_relationship_batch(
+                    ("TestSuite", "qualified_name", source_qn),
+                    "CONTAINS_SUITE",
+                    ("TestSuite", "qualified_name", target_qn),
+                )
+            elif rel_type == "ASSERTS":
+                source_qn = f"{module_qn}.{source}"
+                # Create assertion node inline
+                self.ingestor.ensure_node_batch(
+                    "Assertion",
+                    {
+                        "text": target,
+                        "module": module_qn,
+                    }
+                )
+                self.ingestor.ensure_relationship_batch(
+                    ("TestCase", "qualified_name", source_qn),
+                    "ASSERTS",
+                    ("Assertion", "text", target),
+                )
+                
+        # Also parse for regular functions to find what's being tested
+        self._ingest_top_level_functions(
+            self.ast_cache[file_path][0], module_qn, language
+        )
+        self._ingest_classes_and_methods(
+            self.ast_cache[file_path][0], module_qn, language
+        )
+        
+    def _parse_bdd_file(self, file_path: Path) -> None:
+        """Parse BDD feature files."""
+        logger.info(f"  Parsing BDD feature file: {file_path}")
+        
+        try:
+            content = file_path.read_text()
+            relative_path = file_path.relative_to(self.repo_path)
+            
+            # Create BDD parser
+            bdd_parser = BDDParser()
+            feature = bdd_parser.parse_feature_file(str(file_path), content)
+            
+            # Create feature node
+            feature_qn = f"{self.project_name}.features.{feature.name.replace(' ', '_')}"
+            self.ingestor.ensure_node_batch(
+                "BDDFeature",
+                {
+                    "qualified_name": feature_qn,
+                    "name": feature.name,
+                    "description": feature.description,
+                    "tags": feature.tags,
+                    "path": str(relative_path),
+                }
+            )
+            
+            # Link to project
+            self.ingestor.ensure_relationship_batch(
+                ("Project", "name", self.project_name),
+                "CONTAINS_FEATURE",
+                ("BDDFeature", "qualified_name", feature_qn),
+            )
+            
+            # Create scenario nodes
+            for scenario in feature.scenarios:
+                scenario_qn = f"{feature_qn}.{scenario.name.replace(' ', '_')}"
+                self.ingestor.ensure_node_batch(
+                    "BDDScenario",
+                    {
+                        "qualified_name": scenario_qn,
+                        "name": scenario.name,
+                        "tags": scenario.tags,
+                        "step_count": len(scenario.steps),
+                    }
+                )
+                self.ingestor.ensure_relationship_batch(
+                    ("BDDFeature", "qualified_name", feature_qn),
+                    "CONTAINS_SCENARIO",
+                    ("BDDScenario", "qualified_name", scenario_qn),
+                )
+                
+                # Create step nodes
+                for i, step in enumerate(scenario.steps):
+                    step_id = f"{scenario_qn}.step_{i}"
+                    self.ingestor.ensure_node_batch(
+                        "BDDStep",
+                        {
+                            "qualified_name": step_id,
+                            "keyword": step.keyword,
+                            "text": step.text,
+                            "parameters": step.parameters,
+                        }
+                    )
+                    self.ingestor.ensure_relationship_batch(
+                        ("BDDScenario", "qualified_name", scenario_qn),
+                        "HAS_STEP",
+                        ("BDDStep", "qualified_name", step_id),
+                    )
+                    
+        except Exception as e:
+            logger.error(f"Failed to parse BDD file {file_path}: {e}")
