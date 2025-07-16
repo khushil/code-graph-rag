@@ -16,6 +16,7 @@ from tree_sitter import Parser
 
 from .graph_updater import GraphUpdater
 from .language_config import get_language_config
+from .memory_optimizer import MemoryOptimizedParser, BatchProcessor, optimize_memory_settings
 from .parser_loader import load_parsers
 from .services.graph_service import MemgraphIngestor
 
@@ -52,6 +53,7 @@ class ParallelProcessor:
         queries: Dict[str, Any],
         max_workers: Optional[int] = None,
         batch_size: int = 100,
+        enable_memory_optimization: bool = True,
     ):
         self.ingestor = ingestor
         self.repo_path = repo_path
@@ -75,6 +77,11 @@ class ParallelProcessor:
         self.function_registry: Dict[str, str] = {}
         self.simple_name_lookup: Dict[str, Set[str]] = {}
         self.registry_lock = Lock()
+        
+        # Memory optimization
+        self.enable_memory_optimization = enable_memory_optimization
+        if enable_memory_optimization:
+            optimize_memory_settings()
         
         logger.info(f"Initialized ParallelProcessor with {self.max_workers} workers")
     
@@ -183,7 +190,8 @@ class ParallelProcessor:
                     self._parse_file_worker,
                     task.file_path,
                     task.language,
-                    task.relative_path
+                    task.relative_path,
+                    self.enable_memory_optimization
                 ): task
                 for task in batch
             }
@@ -209,7 +217,8 @@ class ParallelProcessor:
         return results
     
     @staticmethod
-    def _parse_file_worker(file_path: Path, language: str, relative_path: str) -> ParseResult:
+    def _parse_file_worker(file_path: Path, language: str, relative_path: str, 
+                          enable_memory_optimization: bool = True) -> ParseResult:
         """Worker function to parse a single file (runs in separate process)."""
         try:
             # Load parsers in worker process
@@ -226,11 +235,27 @@ class ParallelProcessor:
                     error=f"Unsupported language: {language}"
                 )
             
-            # Parse the file
-            source_bytes = file_path.read_bytes()
             parser = parsers[language]
-            tree = parser.parse(source_bytes)
-            root_node = tree.root_node
+            
+            # Use memory optimization for large files
+            if enable_memory_optimization:
+                mem_optimizer = MemoryOptimizedParser()
+                root_node, error = mem_optimizer.parse_file_optimized(file_path, parser, language)
+                if error:
+                    return ParseResult(
+                        file_path=file_path,
+                        language=language,
+                        nodes=[],
+                        relationships=[],
+                        functions={},
+                        simple_names={},
+                        error=error
+                    )
+            else:
+                # Parse the file normally
+                source_bytes = file_path.read_bytes()
+                tree = parser.parse(source_bytes)
+                root_node = tree.root_node
             
             # Extract module information
             module_parts = list(relative_path.replace(file_path.suffix, "").split("/"))

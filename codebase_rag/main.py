@@ -430,6 +430,11 @@ def start(
                 console.print("[bold yellow]Cleaning database...[/bold yellow]")
                 ingestor.clean_database()
             ingestor.ensure_constraints()
+            
+            # Create indexes for better query performance
+            from .graph_indexing import GraphIndexManager
+            index_manager = GraphIndexManager(ingestor)
+            index_manager.create_indexes()
 
             # Load parsers and queries
             parsers, queries = load_parsers()
