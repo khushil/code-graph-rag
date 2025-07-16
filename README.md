@@ -77,6 +77,30 @@ Use the Makefile for:
   - Java: JUnit, TestNG
 - **🥒 BDD Support**: Parse and link Gherkin feature files to implementations
 
+### Security & Code Quality (New!)
+- **🔒 Security Vulnerability Detection**: 
+  - SQL/Command injection detection
+  - XSS vulnerability scanning
+  - Hardcoded secrets detection
+  - Buffer overflow analysis (C/C++)
+  - Taint flow tracking
+- **📊 Data Flow Analysis**: Track variable usage and data movement through code
+- **🧬 Inheritance Analysis**: Full OOP relationship tracking (inheritance, interfaces, overrides)
+- **📈 Test Coverage Analysis**: Find untested code and calculate coverage metrics
+- **🔄 Circular Dependency Detection**: Identify and visualize circular imports
+
+### Version Control Integration (New!)
+- **📝 Git Blame Integration**: See who modified each file and when
+- **👥 Contributor Analysis**: Track top contributors and commit patterns
+- **📅 Change History**: Query files by modification date
+- **🔍 Commit Metadata**: Access commit messages and author information
+
+### Configuration & Build Support (New!)
+- **⚙️ Configuration File Parsing**: Support for JSON, YAML, TOML, INI, .env files
+- **📦 Dependency Extraction**: Extract dependencies from config files
+- **🏗️ Build Script Analysis**: Parse npm scripts, Makefiles, Dockerfiles
+- **🌍 Environment Detection**: Identify environment-specific configurations
+
 ## 🏗️ Architecture
 
 The system consists of two main components:
@@ -288,13 +312,42 @@ python -m codebase_rag.main start --repo-path /path/to/your/repo \
 
 
 Example queries (works across all supported languages):
+
+**Basic Structure Queries:**
 - "Show me all classes that contain 'user' in their name"
 - "Find functions related to database operations"
 - "What methods does the User class have?"
-- "Show me functions that handle authentication"
-- "List all TypeScript components"
+- "Show me all TypeScript interfaces"
 - "Find Rust structs and their methods"
-- "Show me Go interfaces and implementations"
+
+**Security & Quality Queries:**
+- "Show me all SQL injection vulnerabilities"
+- "Find hardcoded passwords or API keys"
+- "What functions haven't been tested?"
+- "Show me high-severity security issues"
+- "Find buffer overflow vulnerabilities in C code"
+
+**Architecture & Dependencies:**
+- "Show me circular dependencies"
+- "What external packages do we depend on?"
+- "Find classes that inherit from BaseModel"
+- "Which modules import the database layer?"
+- "Show me all abstract classes"
+
+**Version Control & History:**
+- "Who are the top contributors to this project?"
+- "What files changed in the last week?"
+- "Show me the most frequently modified files"
+- "Who last modified the authentication module?"
+
+**Configuration & Testing:**
+- "Show me all configuration files"
+- "Find database connection settings"
+- "List all test suites and their coverage"
+- "Show me BDD scenarios for user authentication"
+- "Find all npm scripts in package.json files"
+
+**Code Modification Examples:**
 - "Add logging to all database connection functions"
 - "Refactor the User class to use dependency injection"
 - "Convert these Python functions to async/await pattern"
@@ -637,6 +690,7 @@ For issues or questions:
 ## 📚 Documentation
 
 - **[SETUP.md](SETUP.md)** - Complete step-by-step setup guide
+- **[ADVANCED_FEATURES.md](docs/ADVANCED_FEATURES.md)** - Comprehensive guide to all advanced features
 - **[MIGRATION.md](MIGRATION.md)** - Guide for upgrading to latest features
 - **[CHANGELOG.md](CHANGELOG.md)** - Detailed list of changes and new features
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Guidelines for contributors
@@ -644,6 +698,15 @@ For issues or questions:
   - `graph_export_example.py` - Basic graph analysis
   - `large_codebase_example.py` - Parallel processing demo
   - `c_and_test_analysis_example.py` - C language and test analysis
+
+### Advanced Feature Guides
+
+- **[Security Analysis](docs/ADVANCED_FEATURES.md#security-vulnerability-detection)** - Vulnerability detection and security scanning
+- **[Test Coverage](docs/ADVANCED_FEATURES.md#test-coverage-tracking)** - Test analysis and coverage metrics
+- **[Data Flow](docs/ADVANCED_FEATURES.md#data-flow-analysis)** - Variable tracking and taint analysis
+- **[Git Integration](docs/ADVANCED_FEATURES.md#git-integration)** - Version control history and blame
+- **[Configuration Parsing](docs/ADVANCED_FEATURES.md#configuration-file-parsing)** - Config file analysis
+- **[Query Templates](codebase_rag/query_templates.py)** - Pre-built Cypher query templates
 
 ## Star History
 

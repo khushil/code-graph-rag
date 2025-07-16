@@ -1,6 +1,9 @@
 # ======================================================================================
 #  SINGLE SOURCE OF TRUTH: THE GRAPH SCHEMA
 # ======================================================================================
+# Import enhanced schema from query_templates module
+from .query_templates import ENHANCED_GRAPH_SCHEMA, get_all_query_templates
+
 GRAPH_SCHEMA_AND_RULES = """
 You are an expert AI assistant for a system that uses a Neo4j graph database.
 
@@ -12,11 +15,16 @@ Node Labels and Their Key Properties:
 - Package: {qualified_name: string, name: string, path: string}
 - Folder: {path: string, name: string}
 - File: {path: string, name: string, extension: string}
-- Module: {qualified_name: string, name: string, path: string}
-- Class: {qualified_name: string, name: string, decorators: list[string]}
-- Function: {qualified_name: string, name: string, decorators: list[string]}
-- Method: {qualified_name: string, name: string, decorators: list[string]}
+- Module: {qualified_name: string, name: string, path: string, git_creation_date: string, git_last_modified: string, git_commit_count: int}
+- Class: {qualified_name: string, name: string, decorators: list[string], base_classes: list[string], is_abstract: bool}
+- Function: {qualified_name: string, name: string, decorators: list[string], start_line: int, end_line: int}
+- Method: {qualified_name: string, name: string, decorators: list[string], is_override: bool, calls_super: bool}
 - ExternalPackage: {name: string, version_spec: string}
+- Variable: {qualified_name: string, name: string, type: string, scope: string}
+- Vulnerability: {id: string, type: string, severity: string, cwe_id: string}
+- TestCase: {qualified_name: string, name: string, test_type: string}
+- ConfigFile: {qualified_name: string, path: string, format: string}
+- Contributor: {id: string, name: string, email: string, total_commits: int}
 
 Relationships (source)-[REL_TYPE]->(target):
 - (Project|Package|Folder) -[:CONTAINS_PACKAGE|CONTAINS_FOLDER|CONTAINS_FILE|CONTAINS_MODULE]-> (various)
@@ -24,6 +32,13 @@ Relationships (source)-[REL_TYPE]->(target):
 - Class -[:DEFINES_METHOD]-> Method
 - Project -[:DEPENDS_ON_EXTERNAL]-> ExternalPackage
 - (Function|Method) -[:CALLS]-> (Function|Method)
+- Module -[:IMPORTS|EXPORTS|REQUIRES]-> Module
+- Variable -[:FLOWS_TO]-> Variable
+- Class -[:INHERITS_FROM|IMPLEMENTS]-> Class
+- Method -[:OVERRIDES]-> Method
+- TestCase -[:TESTS]-> (Function|Method)
+- (Various) -[:HAS_VULNERABILITY]-> Vulnerability
+- Contributor -[:CONTRIBUTES_TO]-> Project
 
 **2. Critical Cypher Query Rules**
 
