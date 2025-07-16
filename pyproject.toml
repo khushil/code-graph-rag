@@ -18,6 +18,7 @@ dependencies = [
     "rich>=13.7.1",
     "prompt-toolkit>=3.0.0",
     "diff-match-patch>=20241021",
+    "tqdm>=4.67.1",
 ]
 
 [tool.setuptools]
@@ -43,6 +44,8 @@ treesitter-full = [
     "tree-sitter-scala>=0.24.0",
     "tree-sitter-java>=0.23.5",
     "tree-sitter-cpp>=0.23.0",
+    "tree-sitter-c==0.21.3",
+    "tqdm>=4.66.0",
 ]
 
 [tool.ruff]
