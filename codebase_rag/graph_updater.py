@@ -17,6 +17,7 @@ from .parsers.bdd_parser import BDDParser
 from .analysis.data_flow import DataFlowAnalyzer
 from .analysis.dependencies import DependencyAnalyzer
 from .analysis.security import SecurityAnalyzer
+from .analysis.inheritance import InheritanceAnalyzer
 
 
 class GraphUpdater:
@@ -296,6 +297,10 @@ class GraphUpdater:
             # Perform security analysis
             if language in ["python", "javascript", "typescript", "c"]:
                 self._analyze_security(file_path, source_bytes.decode("utf-8"), module_qn, language)
+                
+            # Perform inheritance analysis
+            if language in ["python", "javascript", "typescript", "java", "cpp"]:
+                self._analyze_inheritance(file_path, source_bytes.decode("utf-8"), module_qn, language)
 
         except Exception as e:
             logger.error(f"Failed to parse or ingest {file_path}: {e}")
@@ -1489,3 +1494,89 @@ class GraphUpdater:
                     
         except Exception as e:
             logger.error(f"Failed to perform security analysis on {file_path}: {e}")
+    
+    def _analyze_inheritance(self, file_path: Path, content: str, module_qn: str, language: str) -> None:
+        """Analyze inheritance relationships in the file."""
+        try:
+            # Get parser and queries for the language
+            if language not in self.parsers or language not in self.queries:
+                logger.warning(f"No parser available for {language}, skipping inheritance analysis")
+                return
+                
+            parser = self.parsers[language]
+            queries = self.queries[language]
+            
+            # Create inheritance analyzer
+            analyzer = InheritanceAnalyzer(parser, queries, language)
+            
+            # Analyze inheritance
+            inheritance_info, method_overrides, class_info = analyzer.analyze_file(str(file_path), content, module_qn)
+            
+            # Process inheritance relationships
+            for inheritance in inheritance_info:
+                # Create INHERITS_FROM relationship
+                self.ingestor.ensure_relationship_batch(
+                    ("Class", "qualified_name", inheritance.child_class),
+                    "INHERITS_FROM",
+                    ("Class", "qualified_name", inheritance.parent_class),
+                    {
+                        "inheritance_type": inheritance.inheritance_type,
+                        "line_number": inheritance.line_number,
+                        "is_resolved": inheritance.is_resolved,
+                        "confidence": inheritance.confidence
+                    }
+                )
+                
+                # Create specific relationship types
+                if inheritance.inheritance_type == "implements":
+                    self.ingestor.ensure_relationship_batch(
+                        ("Class", "qualified_name", inheritance.child_class),
+                        "IMPLEMENTS",
+                        ("Class", "qualified_name", inheritance.parent_class),
+                        {"line_number": inheritance.line_number}
+                    )
+                elif inheritance.inheritance_type == "extends":
+                    self.ingestor.ensure_relationship_batch(
+                        ("Class", "qualified_name", inheritance.child_class),
+                        "EXTENDS",
+                        ("Class", "qualified_name", inheritance.parent_class),
+                        {"line_number": inheritance.line_number}
+                    )
+            
+            # Process method overrides
+            for override in method_overrides:
+                # Create OVERRIDES relationship
+                self.ingestor.ensure_relationship_batch(
+                    ("Method", "qualified_name", override.child_method),
+                    "OVERRIDES",
+                    ("Method", "qualified_name", override.parent_method),
+                    {
+                        "override_type": override.override_type,
+                        "line_number": override.line_number,
+                        "has_super_call": override.has_super_call,
+                        "is_abstract": override.is_abstract
+                    }
+                )
+            
+            # Update class nodes with additional metadata
+            for class_data in class_info:
+                # Update the existing Class node with additional properties
+                self.ingestor.ensure_node(
+                    "Class",
+                    {
+                        "qualified_name": class_data.qualified_name,
+                        "is_abstract": class_data.is_abstract,
+                        "is_interface": class_data.is_interface,
+                        "is_mixin": class_data.is_mixin,
+                        "metaclass": class_data.metaclass or "",
+                        "decorator_count": len(class_data.decorators) if class_data.decorators else 0,
+                        "method_count": len(class_data.methods) if class_data.methods else 0,
+                        "attribute_count": len(class_data.attributes) if class_data.attributes else 0
+                    }
+                )
+            
+            if inheritance_info or method_overrides:
+                logger.info(f"  Found {len(inheritance_info)} inheritance relationships and {len(method_overrides)} method overrides in {file_path.name}")
+                    
+        except Exception as e:
+            logger.error(f"Failed to perform inheritance analysis on {file_path}: {e}")
