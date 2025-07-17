@@ -9,6 +9,7 @@ from tree_sitter import Node
 @dataclass
 class InheritanceInfo:
     """Represents inheritance relationship information."""
+
     child_class: str  # Fully qualified name of child class
     parent_class: str  # Fully qualified name or unresolved name of parent class
     inheritance_type: str  # "extends", "implements", "mixin", "metaclass"
@@ -20,6 +21,7 @@ class InheritanceInfo:
 @dataclass
 class MethodOverride:
     """Represents a method override relationship."""
+
     child_method: str  # Fully qualified name of overriding method
     parent_method: str  # Fully qualified name of overridden method
     override_type: str  # "override", "abstract_implementation", "super_call"
@@ -31,6 +33,7 @@ class MethodOverride:
 @dataclass
 class ClassInfo:
     """Complete class information including inheritance."""
+
     qualified_name: str
     name: str
     module: str
@@ -54,7 +57,9 @@ class InheritanceAnalyzer:
         self._source_lines: list[str] = []
         self._module_imports: dict[str, str] = {}  # Maps imported names to modules
 
-    def analyze_file(self, file_path: str, content: str, module_qn: str) -> tuple[list[InheritanceInfo], list[MethodOverride], list[ClassInfo]]:
+    def analyze_file(
+        self, file_path: str, content: str, module_qn: str
+    ) -> tuple[list[InheritanceInfo], list[MethodOverride], list[ClassInfo]]:
         """Analyze inheritance relationships in a file."""
         self._source_lines = content.split("\n")
 
@@ -71,13 +76,21 @@ class InheritanceAnalyzer:
 
         # Analyze based on language
         if self.language == "python":
-            inheritance_info, method_overrides, class_info = self._analyze_python_inheritance(root_node, module_qn)
+            inheritance_info, method_overrides, class_info = (
+                self._analyze_python_inheritance(root_node, module_qn)
+            )
         elif self.language in ["javascript", "typescript"]:
-            inheritance_info, method_overrides, class_info = self._analyze_javascript_inheritance(root_node, module_qn)
+            inheritance_info, method_overrides, class_info = (
+                self._analyze_javascript_inheritance(root_node, module_qn)
+            )
         elif self.language == "java":
-            inheritance_info, method_overrides, class_info = self._analyze_java_inheritance(root_node, module_qn)
+            inheritance_info, method_overrides, class_info = (
+                self._analyze_java_inheritance(root_node, module_qn)
+            )
         elif self.language == "cpp":
-            inheritance_info, method_overrides, class_info = self._analyze_cpp_inheritance(root_node, module_qn)
+            inheritance_info, method_overrides, class_info = (
+                self._analyze_cpp_inheritance(root_node, module_qn)
+            )
         else:
             logger.warning(f"Inheritance analysis not implemented for {self.language}")
 
@@ -119,6 +132,8 @@ class InheritanceAnalyzer:
                 parts = module_name.split(".")
                 if parts:
                     self._module_imports[parts[-1]] = module_name
+                # Also store the full module name
+                self._module_imports[module_name] = module_name
             elif child.type == "aliased_import":
                 name_node = child.child_by_field_name("name")
                 alias_node = child.child_by_field_name("alias")
@@ -150,10 +165,14 @@ class InheritanceAnalyzer:
                 alias_node = child.child_by_field_name("alias")
                 if name_node:
                     imported_name = self._get_node_text(name_node)
-                    alias = self._get_node_text(alias_node) if alias_node else imported_name
+                    alias = (
+                        self._get_node_text(alias_node) if alias_node else imported_name
+                    )
                     self._module_imports[alias] = f"{module_name}.{imported_name}"
 
-    def _analyze_python_inheritance(self, root_node: Node, module_qn: str) -> tuple[list[InheritanceInfo], list[MethodOverride], list[ClassInfo]]:
+    def _analyze_python_inheritance(
+        self, root_node: Node, module_qn: str
+    ) -> tuple[list[InheritanceInfo], list[MethodOverride], list[ClassInfo]]:
         """Analyze Python class inheritance."""
         inheritance_info = []
         method_overrides = []
@@ -187,7 +206,7 @@ class InheritanceAnalyzer:
                     line_number=class_node.start_point[0] + 1,
                     decorators=self._extract_decorators(class_node),
                     methods=[],
-                    attributes=[]
+                    attributes=[],
                 )
 
                 # Check decorators for abstract/mixin patterns
@@ -197,15 +216,16 @@ class InheritanceAnalyzer:
                     if "mixin" in decorator.lower():
                         info.is_mixin = True
 
-                # Check if inherits from ABC
-                for base in inheritance_info:
-                    if base.child_class == class_qn and ("ABC" in base.parent_class or base.parent_class == "abc.ABC"):
-                        info.is_abstract = True
+                # Check class name for mixin pattern
+                if class_name.endswith("Mixin") or class_name.endswith("MixIn"):
+                    info.is_mixin = True
 
                 # Extract base classes
                 superclasses_node = class_node.child_by_field_name("superclasses")
                 if superclasses_node:
-                    bases = self._extract_python_base_classes(superclasses_node, class_qn, module_qn)
+                    bases = self._extract_python_base_classes(
+                        superclasses_node, class_qn, module_qn
+                    )
                     inheritance_info.extend(bases)
 
                     # Check for metaclass
@@ -213,10 +233,17 @@ class InheritanceAnalyzer:
                         if base.inheritance_type == "metaclass":
                             info.metaclass = base.parent_class
 
+                    # Check if inherits from ABC
+                    for base in bases:
+                        if "ABC" in base.parent_class or base.parent_class == "abc.ABC":
+                            info.is_abstract = True
+
                 # Extract methods and check for overrides
                 body_node = class_node.child_by_field_name("body")
                 if body_node:
-                    methods, overrides = self._extract_python_methods(body_node, class_qn, inheritance_info)
+                    methods, overrides = self._extract_python_methods(
+                        body_node, class_qn, inheritance_info
+                    )
                     info.methods = [m["name"] for m in methods]
                     method_overrides.extend(overrides)
 
@@ -227,7 +254,9 @@ class InheritanceAnalyzer:
 
         return inheritance_info, method_overrides, class_info
 
-    def _extract_python_base_classes(self, superclasses_node: Node, class_qn: str, module_qn: str) -> list[InheritanceInfo]:
+    def _extract_python_base_classes(
+        self, superclasses_node: Node, class_qn: str, module_qn: str
+    ) -> list[InheritanceInfo]:
         """Extract base classes from Python class definition."""
         bases = []
 
@@ -237,12 +266,15 @@ class InheritanceAnalyzer:
                 base_name = self._get_node_text(child)
                 resolved_name = self._resolve_class_name(base_name, module_qn)
 
+                # Check if it's resolved
+                is_resolved = resolved_name != base_name
+
                 inheritance = InheritanceInfo(
                     child_class=class_qn,
                     parent_class=resolved_name,
                     inheritance_type="extends",
                     line_number=child.start_point[0] + 1,
-                    is_resolved=resolved_name != base_name
+                    is_resolved=is_resolved,
                 )
                 bases.append(inheritance)
 
@@ -251,12 +283,19 @@ class InheritanceAnalyzer:
                 base_name = self._get_node_text(child)
                 resolved_name = self._resolve_class_name(base_name, module_qn)
 
+                # Check if it's resolved: either the name changed OR it's a qualified name with imported module
+                is_resolved = resolved_name != base_name
+                if not is_resolved and "." in base_name:
+                    # Check if the module part is imported
+                    module_part = base_name.split(".", 1)[0]
+                    is_resolved = module_part in self._module_imports
+
                 inheritance = InheritanceInfo(
                     child_class=class_qn,
                     parent_class=resolved_name,
                     inheritance_type="extends",
                     line_number=child.start_point[0] + 1,
-                    is_resolved=resolved_name != base_name
+                    is_resolved=is_resolved,
                 )
                 bases.append(inheritance)
 
@@ -273,13 +312,15 @@ class InheritanceAnalyzer:
                         parent_class=resolved_name,
                         inheritance_type="metaclass",
                         line_number=value.start_point[0] + 1,
-                        is_resolved=resolved_name != metaclass_name
+                        is_resolved=resolved_name != metaclass_name,
                     )
                     bases.append(inheritance)
 
         return bases
 
-    def _extract_python_methods(self, body_node: Node, class_qn: str, inheritance_info: list[InheritanceInfo]) -> tuple[list[dict], list[MethodOverride]]:
+    def _extract_python_methods(
+        self, body_node: Node, class_qn: str, inheritance_info: list[InheritanceInfo]
+    ) -> tuple[list[dict], list[MethodOverride]]:
         """Extract methods from Python class body and identify overrides."""
         methods = []
         overrides = []
@@ -298,7 +339,7 @@ class InheritanceAnalyzer:
                         "line_number": child.start_point[0] + 1,
                         "decorators": self._extract_decorators(child),
                         "has_super_call": self._has_super_call(child),
-                        "is_abstract": False
+                        "is_abstract": False,
                     }
 
                     # Check if abstract
@@ -310,7 +351,9 @@ class InheritanceAnalyzer:
                     # For each parent class, check if this could be an override
                     for inheritance in inheritance_info:
                         if inheritance.child_class == class_qn:
-                            parent_method_qn = f"{inheritance.parent_class}.{method_name}"
+                            parent_method_qn = (
+                                f"{inheritance.parent_class}.{method_name}"
+                            )
 
                             override = MethodOverride(
                                 child_method=method_qn,
@@ -318,11 +361,16 @@ class InheritanceAnalyzer:
                                 override_type="override",
                                 line_number=method_info["line_number"],
                                 has_super_call=method_info["has_super_call"],
-                                is_abstract=method_info["is_abstract"]
+                                is_abstract=method_info["is_abstract"],
                             )
 
                             # Adjust confidence based on method name
-                            if method_name in ["__init__", "__str__", "__repr__", "__eq__"]:
+                            if method_name in [
+                                "__init__",
+                                "__str__",
+                                "__repr__",
+                                "__eq__",
+                            ]:
                                 override.override_type = "override"
                             elif method_info["is_abstract"]:
                                 override.override_type = "abstract_implementation"
@@ -337,21 +385,28 @@ class InheritanceAnalyzer:
         """Extract class attributes from Python class body."""
         attributes = []
 
-        for child in body_node.children:
-            if child.type == "expression_statement":
-                # Look for self.attribute assignments
-                expr = child.children[0] if child.children else None
-                if expr and expr.type == "assignment":
-                    left = expr.child_by_field_name("left")
-                    if left and left.type == "attribute":
-                        obj = left.child_by_field_name("object")
-                        attr = left.child_by_field_name("attribute")
-                        if obj and attr and self._get_node_text(obj) == "self":
-                            attributes.append(self._get_node_text(attr))
+        def search_assignments(node: Node) -> None:
+            """Recursively search for self.attribute assignments."""
+            if node.type == "assignment":
+                left = node.child_by_field_name("left")
+                if left and left.type == "attribute":
+                    obj = left.child_by_field_name("object")
+                    attr = left.child_by_field_name("attribute")
+                    if obj and attr and self._get_node_text(obj) == "self":
+                        attributes.append(self._get_node_text(attr))
+
+            # Recurse into children
+            for child in node.children:
+                search_assignments(child)
+
+        # Search the entire class body recursively
+        search_assignments(body_node)
 
         return list(set(attributes))  # Remove duplicates
 
-    def _analyze_javascript_inheritance(self, root_node: Node, module_qn: str) -> tuple[list[InheritanceInfo], list[MethodOverride], list[ClassInfo]]:
+    def _analyze_javascript_inheritance(
+        self, root_node: Node, module_qn: str
+    ) -> tuple[list[InheritanceInfo], list[MethodOverride], list[ClassInfo]]:
         """Analyze JavaScript/TypeScript class inheritance."""
         inheritance_info = []
         method_overrides = []
@@ -361,7 +416,9 @@ class InheritanceAnalyzer:
         class_query = """
         (class_declaration
             name: (identifier) @class_name
-            heritage: (class_heritage) @heritage
+            (class_heritage
+                (identifier) @parent_class
+            )?
             body: (class_body) @body
         ) @class
         """
@@ -373,23 +430,43 @@ class InheritanceAnalyzer:
             # Process each class
             # Group captures by class node
             classes = {}
-            for node, capture_name in captures:
+            parent_classes = {}
+
+            # Handle both old and new capture formats
+            capture_list = []
+            if isinstance(captures, dict):
+                for capture_name, nodes in captures.items():
+                    for node in nodes:
+                        capture_list.append((node, capture_name))
+            else:
+                # Old format: list of (node, capture_name) tuples
+                capture_list = captures
+
+            for node, capture_name in capture_list:
                 if capture_name == "class":
                     classes[node] = {"node": node}
                 elif capture_name == "class_name":
+                    # Find the class_declaration parent
                     parent = node.parent
-                    if parent in classes:
+                    while parent and parent.type != "class_declaration":
+                        parent = parent.parent
+                    if parent and parent in classes:
                         classes[parent]["name"] = self._get_node_text(node)
-                elif capture_name == "heritage":
+                elif capture_name == "parent_class":
+                    # Find the class_declaration ancestor
                     parent = node.parent
-                    if parent in classes:
-                        classes[parent]["heritage"] = node
+                    while parent and parent.type != "class_declaration":
+                        parent = parent.parent
+                    if parent:
+                        if parent not in parent_classes:
+                            parent_classes[parent] = []
+                        parent_classes[parent].append(self._get_node_text(node))
                 elif capture_name == "body":
                     parent = node.parent
                     if parent in classes:
                         classes[parent]["body"] = node
 
-            for class_data in classes.values():
+            for class_node, class_data in classes.items():
                 if "name" not in class_data:
                     continue
 
@@ -402,29 +479,20 @@ class InheritanceAnalyzer:
                     module=module_qn,
                     line_number=class_data["node"].start_point[0] + 1,
                     methods=[],
-                    attributes=[]
+                    attributes=[],
                 )
 
                 # Extract inheritance
-                if "heritage" in class_data:
-                    extends_clause = None
-                    for child in class_data["heritage"].children:
-                        if child.type == "extends_clause":
-                            extends_clause = child
-                            break
-
-                    if extends_clause:
-                        for child in extends_clause.children:
-                            if child.type == "identifier":
-                                parent_name = self._get_node_text(child)
-                                inheritance = InheritanceInfo(
-                                    child_class=class_qn,
-                                    parent_class=parent_name,
-                                    inheritance_type="extends",
-                                    line_number=child.start_point[0] + 1,
-                                    is_resolved=False
-                                )
-                                inheritance_info.append(inheritance)
+                if class_node in parent_classes:
+                    for parent_name in parent_classes[class_node]:
+                        inheritance = InheritanceInfo(
+                            child_class=class_qn,
+                            parent_class=parent_name,
+                            inheritance_type="extends",
+                            line_number=class_node.start_point[0] + 1,
+                            is_resolved=False,
+                        )
+                        inheritance_info.append(inheritance)
 
                 # TODO: Extract methods and check for overrides
 
@@ -435,12 +503,16 @@ class InheritanceAnalyzer:
 
         return inheritance_info, method_overrides, class_info
 
-    def _analyze_java_inheritance(self, root_node: Node, module_qn: str) -> tuple[list[InheritanceInfo], list[MethodOverride], list[ClassInfo]]:
+    def _analyze_java_inheritance(
+        self, root_node: Node, module_qn: str
+    ) -> tuple[list[InheritanceInfo], list[MethodOverride], list[ClassInfo]]:
         """Analyze Java class inheritance."""
         # TODO: Implement Java inheritance analysis
         return [], [], []
 
-    def _analyze_cpp_inheritance(self, root_node: Node, module_qn: str) -> tuple[list[InheritanceInfo], list[MethodOverride], list[ClassInfo]]:
+    def _analyze_cpp_inheritance(
+        self, root_node: Node, module_qn: str
+    ) -> tuple[list[InheritanceInfo], list[MethodOverride], list[ClassInfo]]:
         """Analyze C++ class inheritance."""
         # TODO: Implement C++ inheritance analysis
         return [], [], []
@@ -449,6 +521,13 @@ class InheritanceAnalyzer:
         """Resolve a class name to its fully qualified name."""
         # Check if it's already qualified (contains dots)
         if "." in name:
+            # Check if the module part is an imported module
+            parts = name.split(".", 1)
+            if parts[0] in self._module_imports:
+                # Resolve the module part to its full name
+                full_module = self._module_imports[parts[0]]
+                # Return the full path with the class name
+                return f"{full_module}.{parts[1]}"
             return name
 
         # Check imports
@@ -479,15 +558,38 @@ class InheritanceAnalyzer:
         """Check if a method name suggests it might be an override."""
         # Common override patterns
         override_patterns = [
-            "__init__", "__str__", "__repr__", "__eq__", "__hash__",
-            "__lt__", "__gt__", "__le__", "__ge__", "__ne__",
-            "__getitem__", "__setitem__", "__delitem__", "__len__",
-            "__iter__", "__next__", "__contains__",
-            "__enter__", "__exit__", "__call__",
-            "setUp", "tearDown", "test_",  # Unit test methods
-            "render", "update", "draw",  # Common game/UI methods
-            "save", "load", "validate",  # Common data methods
-            "process", "handle", "execute",  # Common handler methods
+            "__init__",
+            "__str__",
+            "__repr__",
+            "__eq__",
+            "__hash__",
+            "__lt__",
+            "__gt__",
+            "__le__",
+            "__ge__",
+            "__ne__",
+            "__getitem__",
+            "__setitem__",
+            "__delitem__",
+            "__len__",
+            "__iter__",
+            "__next__",
+            "__contains__",
+            "__enter__",
+            "__exit__",
+            "__call__",
+            "setUp",
+            "tearDown",
+            "test_",  # Unit test methods
+            "render",
+            "update",
+            "draw",  # Common game/UI methods
+            "save",
+            "load",
+            "validate",  # Common data methods
+            "process",
+            "handle",
+            "execute",  # Common handler methods
         ]
 
         # Check exact matches
@@ -521,7 +623,9 @@ class InheritanceAnalyzer:
                         sibling = parent.children[j]
                         if sibling.type == "decorator":
                             decorator_text = self._get_node_text(sibling).strip("@")
-                            decorators.insert(0, decorator_text)  # Insert at beginning to maintain order
+                            decorators.insert(
+                                0, decorator_text
+                            )  # Insert at beginning to maintain order
                         elif sibling.type not in ["comment", "newline"]:
                             # Stop when we hit something that's not a decorator
                             break
@@ -538,11 +642,10 @@ class InheritanceAnalyzer:
 
         if start_line == end_line:
             return self._source_lines[start_line][start_col:end_col]
-        else:
-            # Multi-line node
-            lines = []
-            lines.append(self._source_lines[start_line][start_col:])
-            for i in range(start_line + 1, end_line):
-                lines.append(self._source_lines[i])
-            lines.append(self._source_lines[end_line][:end_col])
-            return "\n".join(lines)
+        # Multi-line node
+        lines = []
+        lines.append(self._source_lines[start_line][start_col:])
+        for i in range(start_line + 1, end_line):
+            lines.append(self._source_lines[i])
+        lines.append(self._source_lines[end_line][:end_col])
+        return "\n".join(lines)
