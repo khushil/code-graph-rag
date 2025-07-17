@@ -52,18 +52,28 @@ class TestCParser:
 
         # Extract function names
         function_names = []
-        for match in captures:
-            for node, _ in match:
-                if hasattr(node, 'child_by_field_name'):
-                    name_node = node.child_by_field_name('declarator')
-                    if name_node:
-                        # Navigate through pointer declarators if present
-                        while name_node.type == 'pointer_declarator':
-                            name_node = name_node.child_by_field_name('declarator')
-                        if name_node.type == 'function_declarator':
-                            identifier = name_node.child_by_field_name('declarator')
-                            if identifier and identifier.type == 'identifier':
-                                function_names.append(identifier.text.decode('utf-8'))
+
+        # Use captures() instead of matches() for consistent API
+        captures = function_query.captures(tree.root_node)
+
+        # Handle both dict and list formats
+        if isinstance(captures, dict):
+            func_nodes = captures.get("function", [])
+        else:
+            # List of (node, name) tuples
+            func_nodes = [node for node, name in captures if name == "function"]
+
+        for node in func_nodes:
+            if hasattr(node, "child_by_field_name"):
+                name_node = node.child_by_field_name("declarator")
+                if name_node:
+                    # Navigate through pointer declarators if present
+                    while name_node.type == "pointer_declarator":
+                        name_node = name_node.child_by_field_name("declarator")
+                    if name_node.type == "function_declarator":
+                        identifier = name_node.child_by_field_name("declarator")
+                        if identifier and identifier.type == "identifier":
+                            function_names.append(identifier.text.decode("utf-8"))
 
         assert "print_hello" in function_names
         assert "add" in function_names
@@ -83,10 +93,17 @@ class TestCParser:
 
         # Query for classes (structs/unions/enums)
         class_query = queries["c"]["classes"]
-        captures = class_query.matches(tree.root_node)
+        captures = class_query.captures(tree.root_node)
+
+        # Handle both dict and list formats
+        if isinstance(captures, dict):
+            class_nodes = captures.get("class", [])
+        else:
+            # List of (node, name) tuples
+            class_nodes = [node for node, name in captures if name == "class"]
 
         # Check that we found some structs/enums
-        assert len(list(captures)) > 0
+        assert len(class_nodes) > 0
 
     def test_parse_header_file(self, parsers_and_queries):
         """Test parsing a header file."""

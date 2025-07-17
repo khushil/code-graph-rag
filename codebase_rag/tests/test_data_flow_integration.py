@@ -18,6 +18,8 @@ class TestDataFlowIntegration:
         mock.batch_update_nodes = Mock()
         mock.batch_update_relationships = Mock()
         mock.clear_and_flush_buffer = Mock()
+        mock.ensure_node_batch = Mock()
+        mock.ensure_relationship_batch = Mock()
         return mock
 
     @pytest.fixture
@@ -30,7 +32,7 @@ class TestDataFlowIntegration:
         """Test that Variable nodes are created during data flow analysis."""
         # Create test file
         test_file = tmp_path / "test_module.py"
-        test_file.write_text('''
+        test_file.write_text("""
 # Global variable
 config = {"debug": True}
 
@@ -48,17 +50,17 @@ class DataHandler:
         self.data.append(item)
         count = len(self.data)
         return count
-''')
+""")
 
         # Process the file
         graph_updater.parse_and_ingest_file(test_file, "python")
 
         # Check that Variable nodes were created
         variable_nodes = []
-        for call in mock_ingestor.batch_update_nodes.call_args_list:
-            label, nodes = call[0]
+        for call in mock_ingestor.ensure_node_batch.call_args_list:
+            label, node = call[0]
             if label == "Variable":
-                variable_nodes.extend(nodes)
+                variable_nodes.append(node)
 
         # Verify we have the expected variables
         var_names = {node["name"] for node in variable_nodes}
@@ -76,11 +78,13 @@ class DataHandler:
         assert var_by_name["result"]["var_type"] == "local"
         assert var_by_name["data"]["var_type"] == "field"
 
-    def test_data_flow_relationships_created(self, graph_updater, mock_ingestor, tmp_path):
+    def test_data_flow_relationships_created(
+        self, graph_updater, mock_ingestor, tmp_path
+    ):
         """Test that FLOWS_TO relationships are created."""
         # Create test file with clear data flows
         test_file = tmp_path / "flows.py"
-        test_file.write_text('''
+        test_file.write_text("""
 def calculate(x):
     # Direct assignment
     y = x
@@ -92,18 +96,17 @@ def calculate(x):
 
 def transform(value):
     return value * 2
-''')
+""")
 
         # Process the file
         graph_updater.parse_and_ingest_file(test_file, "python")
 
         # Check that FLOWS_TO relationships were created
         flows_to_rels = []
-        for call in mock_ingestor.batch_update_relationships.call_args_list:
-            rels = call[0][0]  # First positional argument is the list of relationships
-            for rel in rels:
-                if len(rel) >= 2 and rel[1] == "FLOWS_TO":
-                    flows_to_rels.append(rel)
+        for call in mock_ingestor.ensure_relationship_batch.call_args_list:
+            args = call[0]
+            if len(args) >= 2 and args[1] == "FLOWS_TO":
+                flows_to_rels.append(args)
 
         # We should have some FLOWS_TO relationships
         assert len(flows_to_rels) > 0, "No FLOWS_TO relationships were created"

@@ -20,7 +20,9 @@ class CNode:
     start_line: int
     end_line: int
     properties: dict[str, Any] = field(default_factory=dict)
-    relationships: list[tuple[str, str, str]] = field(default_factory=list)  # (rel_type, target_type, target_name)
+    relationships: list[tuple[str, str, str]] = field(
+        default_factory=list
+    )  # (rel_type, target_type, target_name)
 
 
 class CParser:
@@ -30,9 +32,13 @@ class CParser:
         self.parser = parser
         self.queries = queries
         self.nodes: list[CNode] = []
-        self.relationships: list[tuple[str, str, str, str]] = []  # (source, rel_type, target_type, target)
+        self.relationships: list[
+            tuple[str, str, str, str]
+        ] = []  # (source, rel_type, target_type, target)
 
-    def parse_file(self, file_path: str, content: str) -> tuple[list[CNode], list[tuple[str, str, str, str]]]:
+    def parse_file(
+        self, file_path: str, content: str
+    ) -> tuple[list[CNode], list[tuple[str, str, str, str]]]:
         """Parse a C file and extract nodes and relationships."""
         self.nodes = []
         self.relationships = []
@@ -53,80 +59,90 @@ class CParser:
 
         # Perform pointer analysis
         pointer_analyzer = CPointerAnalyzer()
-        pointer_info, pointer_relationships = pointer_analyzer.analyze_pointers(tree.root_node, content)
+        pointer_info, pointer_relationships = pointer_analyzer.analyze_pointers(
+            tree.root_node, content
+        )
 
         # Add pointer relationships
         self.relationships.extend(pointer_relationships)
 
         # Add function pointer nodes
         for fp_name, fp_info in pointer_analyzer.function_pointers.items():
-            self.nodes.append(CNode(
-                node_type="function_pointer",
-                name=fp_name,
-                file_path=file_path,
-                start_line=0,  # Would need to track from declarator
-                end_line=0,
-                properties={
-                    "return_type": fp_info.return_type,
-                    "param_types": fp_info.param_types,
-                    "assigned_functions": fp_info.assigned_functions,
-                }
-            ))
+            self.nodes.append(
+                CNode(
+                    node_type="function_pointer",
+                    name=fp_name,
+                    file_path=file_path,
+                    start_line=0,  # Would need to track from declarator
+                    end_line=0,
+                    properties={
+                        "return_type": fp_info.return_type,
+                        "param_types": fp_info.param_types,
+                        "assigned_functions": fp_info.assigned_functions,
+                    },
+                )
+            )
 
         # Perform kernel-specific analysis
         kernel_analyzer = CKernelAnalyzer()
-        syscalls, module_info, concurrency_primitives, kernel_relationships = kernel_analyzer.analyze_kernel_patterns(
-            tree.root_node, content, file_path
+        syscalls, module_info, concurrency_primitives, kernel_relationships = (
+            kernel_analyzer.analyze_kernel_patterns(tree.root_node, content, file_path)
         )
 
         # Add syscall nodes
         for syscall_name, syscall_info in syscalls.items():
-            self.nodes.append(CNode(
-                node_type="syscall",
-                name=syscall_name,
-                file_path=file_path,
-                start_line=syscall_info.location[0],
-                end_line=syscall_info.location[0],
-                properties={
-                    "param_count": syscall_info.param_count,
-                    "params": syscall_info.params,
-                }
-            ))
+            self.nodes.append(
+                CNode(
+                    node_type="syscall",
+                    name=syscall_name,
+                    file_path=file_path,
+                    start_line=syscall_info.location[0],
+                    end_line=syscall_info.location[0],
+                    properties={
+                        "param_count": syscall_info.param_count,
+                        "params": syscall_info.params,
+                    },
+                )
+            )
 
         # Add concurrency primitive nodes
         for lock_name, lock_info in concurrency_primitives.items():
-            self.nodes.append(CNode(
-                node_type="concurrency_primitive",
-                name=lock_name,
-                file_path=file_path,
-                start_line=0,
-                end_line=0,
-                properties={
-                    "primitive_type": lock_info.primitive_type,
-                    "is_static": lock_info.is_static,
-                    "is_global": lock_info.is_global,
-                    "operations": lock_info.operations,
-                }
-            ))
+            self.nodes.append(
+                CNode(
+                    node_type="concurrency_primitive",
+                    name=lock_name,
+                    file_path=file_path,
+                    start_line=0,
+                    end_line=0,
+                    properties={
+                        "primitive_type": lock_info.primitive_type,
+                        "is_static": lock_info.is_static,
+                        "is_global": lock_info.is_global,
+                        "operations": lock_info.operations,
+                    },
+                )
+            )
 
         # Add kernel relationships
         self.relationships.extend(kernel_relationships)
 
         # Add module info as properties of the file
         if module_info.exported_symbols or module_info.init_function:
-            self.nodes.append(CNode(
-                node_type="kernel_module",
-                name=file_path.split('/')[-1].replace('.c', ''),
-                file_path=file_path,
-                start_line=0,
-                end_line=0,
-                properties={
-                    "exported_symbols": module_info.exported_symbols,
-                    "init_function": module_info.init_function,
-                    "exit_function": module_info.exit_function,
-                    "module_params": list(module_info.module_params.keys()),
-                }
-            ))
+            self.nodes.append(
+                CNode(
+                    node_type="kernel_module",
+                    name=file_path.split("/")[-1].replace(".c", ""),
+                    file_path=file_path,
+                    start_line=0,
+                    end_line=0,
+                    properties={
+                        "exported_symbols": module_info.exported_symbols,
+                        "init_function": module_info.init_function,
+                        "exit_function": module_info.exit_function,
+                        "module_params": list(module_info.module_params.keys()),
+                    },
+                )
+            )
 
         return self.nodes, self.relationships
 
@@ -137,43 +153,50 @@ class CParser:
 
         for node in captures.get("function", []):
             if node.type == "function_definition":
-                    name = self._get_function_name(node)
-                    if name:
-                        # Extract return type
-                        return_type = self._get_return_type(node, content)
-                        # Extract parameters
-                        params = self._get_function_parameters(node, content)
+                name = self._get_function_name(node)
+                if name:
+                    # Extract return type
+                    return_type = self._get_return_type(node, content)
+                    # Extract parameters
+                    params = self._get_function_parameters(node, content)
 
-                        c_node = CNode(
-                            node_type="function",
-                            name=name,
-                            file_path=self.current_file,
-                            start_line=node.start_point[0] + 1,
-                            end_line=node.end_point[0] + 1,
-                            properties={
-                                "return_type": return_type,
-                                "parameters": params,
-                                "is_static": self._is_static_function(node, content),
-                                "is_inline": self._is_inline_function(node, content),
-                            }
-                        )
-                        self.nodes.append(c_node)
+                    c_node = CNode(
+                        node_type="function",
+                        name=name,
+                        file_path=self.current_file,
+                        start_line=node.start_point[0] + 1,
+                        end_line=node.end_point[0] + 1,
+                        properties={
+                            "return_type": return_type,
+                            "parameters": params,
+                            "is_static": self._is_static_function(node, content),
+                            "is_inline": self._is_inline_function(node, content),
+                        },
+                    )
+                    self.nodes.append(c_node)
 
     def _extract_structs_unions_enums(self, root: Node, content: str) -> None:
         """Extract struct, union, and enum definitions."""
-        query = self.queries["classes"]  # Reusing classes query for C structs/unions/enums
+        query = self.queries[
+            "classes"
+        ]  # Reusing classes query for C structs/unions/enums
         captures = query.captures(root)
 
         for node in captures.get("class", []):
-                if node.type == "struct_specifier":
-                    self._extract_struct(node, content)
-                elif node.type == "union_specifier":
-                    self._extract_union(node, content)
-                elif node.type == "enum_specifier":
-                    self._extract_enum(node, content)
+            if node.type == "struct_specifier":
+                self._extract_struct(node, content)
+            elif node.type == "union_specifier":
+                self._extract_union(node, content)
+            elif node.type == "enum_specifier":
+                self._extract_enum(node, content)
 
     def _extract_struct(self, node: Node, content: str) -> None:
         """Extract struct definition."""
+        # Only extract structs with bodies (not forward declarations)
+        body = node.child_by_field_name("body")
+        if not body:
+            return
+
         name = self._get_type_name(node)
         if name:
             # Extract fields
@@ -188,7 +211,7 @@ class CParser:
                 properties={
                     "fields": fields,
                     "is_anonymous": name.startswith("_anon_"),
-                }
+                },
             )
             self.nodes.append(c_node)
 
@@ -211,7 +234,9 @@ class CParser:
                 # Get the type being aliased
                 type_node = node.child_by_field_name("type")
                 if type_node:
-                    base_type = content[type_node.start_byte:type_node.end_byte].strip()
+                    base_type = content[
+                        type_node.start_byte : type_node.end_byte
+                    ].strip()
 
                 if name:
                     c_node = CNode(
@@ -222,15 +247,13 @@ class CParser:
                         end_line=node.end_point[0] + 1,
                         properties={
                             "base_type": base_type,
-                        }
+                        },
                     )
                     self.nodes.append(c_node)
 
                     # Add TYPE_OF relationship
                     if base_type:
-                        self.relationships.append(
-                            (name, "TYPE_OF", "type", base_type)
-                        )
+                        self.relationships.append((name, "TYPE_OF", "type", base_type))
 
             # Recurse
             if cursor.goto_first_child():
@@ -248,17 +271,23 @@ class CParser:
         def visit_node(cursor) -> None:
             node = cursor.node
 
-            if node.type == "preproc_def":
+            if node.type in ["preproc_def", "preproc_function_def"]:
                 # Extract macro definition
-                name_node = node.child_by_field_name("name")
-                if name_node:
-                    name = content[name_node.start_byte:name_node.end_byte]
+                # For both types, the identifier is the second child
+                name = None
+                for child in node.children:
+                    if child.type == "identifier":
+                        name = child.text.decode("utf-8")
+                        break
 
+                if name:
                     # Get macro value
-                    value_node = node.child_by_field_name("value")
                     value = ""
-                    if value_node:
-                        value = content[value_node.start_byte:value_node.end_byte].strip()
+                    # Find the preproc_arg node which contains the value
+                    for child in node.children:
+                        if child.type == "preproc_arg":
+                            value = content[child.start_byte : child.end_byte].strip()
+                            break
 
                     # Check if it's a function-like macro
                     parameters = self._get_macro_parameters(node, content)
@@ -273,7 +302,7 @@ class CParser:
                             "value": value,
                             "is_function_like": parameters is not None,
                             "parameters": parameters or [],
-                        }
+                        },
                     )
                     self.nodes.append(c_node)
 
@@ -281,7 +310,9 @@ class CParser:
                 # Extract include directive
                 path_node = node.child_by_field_name("path")
                 if path_node:
-                    include_path = content[path_node.start_byte:path_node.end_byte].strip()
+                    include_path = content[
+                        path_node.start_byte : path_node.end_byte
+                    ].strip()
                     # Remove quotes or angle brackets
                     include_path = include_path.strip('"<>')
 
@@ -294,7 +325,7 @@ class CParser:
                 # Extract conditional compilation
                 name_node = node.child_by_field_name("name")
                 if name_node:
-                    macro_name = content[name_node.start_byte:name_node.end_byte]
+                    macro_name = content[name_node.start_byte : name_node.end_byte]
                     # Add relationship to track macro usage
                     self.relationships.append(
                         (self.current_file, "USES_MACRO", "macro", macro_name)
@@ -321,7 +352,11 @@ class CParser:
                 in_function = True
 
             # Look for declarations at the top level (not inside functions)
-            if node.type == "declaration" and not in_function and node.parent.type == "translation_unit":
+            if (
+                node.type == "declaration"
+                and not in_function
+                and node.parent.type == "translation_unit"
+            ):
                 # Extract variable name and type
                 declarator = self._find_declarator(node)
                 if declarator:
@@ -340,7 +375,7 @@ class CParser:
                                 "is_static": self._is_static_declaration(node, content),
                                 "is_extern": self._is_extern_declaration(node, content),
                                 "is_const": self._is_const_declaration(node, content),
-                            }
+                            },
                         )
                         self.nodes.append(c_node)
 
@@ -363,18 +398,20 @@ class CParser:
 
         # Find which function contains each call
         for node in captures.get("call", []):
-                if node.type == "call_expression":
-                    # Get the function being called
-                    function_node = node.child_by_field_name("function")
-                    if function_node and function_node.type == "identifier":
-                        called_function = content[function_node.start_byte:function_node.end_byte]
+            if node.type == "call_expression":
+                # Get the function being called
+                function_node = node.child_by_field_name("function")
+                if function_node and function_node.type == "identifier":
+                    called_function = content[
+                        function_node.start_byte : function_node.end_byte
+                    ]
 
-                        # Find the containing function
-                        containing_function = self._find_containing_function(node, content)
-                        if containing_function:
-                            self.relationships.append(
-                                (containing_function, "CALLS", "function", called_function)
-                            )
+                    # Find the containing function
+                    containing_function = self._find_containing_function(node, content)
+                    if containing_function:
+                        self.relationships.append(
+                            (containing_function, "CALLS", "function", called_function)
+                        )
 
     # Helper methods
     def _get_function_name(self, node: Node) -> str | None:
@@ -406,15 +443,26 @@ class CParser:
 
     def _get_identifier_text(self, node: Node, content: str) -> str | None:
         """Extract identifier text from various node types."""
-        if node.type == "identifier":
+        if node.type in ["identifier", "type_identifier", "field_identifier"]:
             return node.text.decode("utf-8")
 
         # For declarators, find the identifier
-        if node.type in ["declarator", "init_declarator"]:
+        if node.type in [
+            "declarator",
+            "init_declarator",
+            "array_declarator",
+            "pointer_declarator",
+            "function_declarator",
+            "parenthesized_declarator",
+        ]:
             cursor = node.walk()
 
             def find_identifier(cursor) -> str | None:
-                if cursor.node.type == "identifier":
+                if cursor.node.type in [
+                    "identifier",
+                    "field_identifier",
+                    "type_identifier",
+                ]:
                     return cursor.node.text.decode("utf-8")
 
                 if cursor.goto_first_child():
@@ -437,14 +485,16 @@ class CParser:
         # Get all text before the declarator
         declarator = func_node.child_by_field_name("declarator")
         if declarator:
-            type_text = content[func_node.start_byte:declarator.start_byte].strip()
+            type_text = content[func_node.start_byte : declarator.start_byte].strip()
             # Remove storage class specifiers
             for spec in ["static", "inline", "extern"]:
                 type_text = type_text.replace(spec, "").strip()
             return type_text if type_text else "void"
         return "void"
 
-    def _get_function_parameters(self, func_node: Node, content: str) -> list[dict[str, str]]:
+    def _get_function_parameters(
+        self, func_node: Node, content: str
+    ) -> list[dict[str, str]]:
         """Extract function parameters."""
         params = []
         declarator = func_node.child_by_field_name("declarator")
@@ -464,24 +514,42 @@ class CParser:
                         param_type = ""
                         param_name = ""
 
-                        # Get parameter type
-                        type_node = child.child_by_field_name("type")
-                        if type_node:
-                            param_type = content[type_node.start_byte:type_node.end_byte].strip()
-
-                        # Get parameter name
+                        # Get parameter type - extract everything except the identifier
                         declarator_node = child.child_by_field_name("declarator")
                         if declarator_node:
-                            param_name = self._get_identifier_text(declarator_node, content) or ""
+                            # Get parameter name first
+                            param_name = (
+                                self._get_identifier_text(declarator_node, content)
+                                or ""
+                            )
 
-                        params.append({
-                            "type": param_type,
-                            "name": param_name
-                        })
+                            # For the type, we need everything from the start of the parameter
+                            # to just before the identifier
+                            param_text = content[
+                                child.start_byte : child.end_byte
+                            ].strip()
+
+                            # If we have a name, remove it from the end to get the type
+                            if param_name and param_name in param_text:
+                                # Find the last occurrence of the name and extract everything before it
+                                name_pos = param_text.rfind(param_name)
+                                param_type = param_text[:name_pos].strip()
+                            else:
+                                # No name, the whole thing is the type
+                                param_type = param_text
+                        else:
+                            # No declarator, get the whole parameter as type
+                            param_type = content[
+                                child.start_byte : child.end_byte
+                            ].strip()
+
+                        params.append({"type": param_type, "name": param_name})
 
         return params
 
-    def _get_struct_fields(self, struct_node: Node, content: str) -> list[dict[str, str]]:
+    def _get_struct_fields(
+        self, struct_node: Node, content: str
+    ) -> list[dict[str, str]]:
         """Extract fields from struct definition."""
         fields = []
         body = struct_node.child_by_field_name("body")
@@ -495,20 +563,35 @@ class CParser:
                     # Get field type
                     type_node = child.child_by_field_name("type")
                     if type_node:
-                        field_type = content[type_node.start_byte:type_node.end_byte].strip()
+                        field_type = content[
+                            type_node.start_byte : type_node.end_byte
+                        ].strip()
 
                     # Get field names (can be multiple in one declaration)
-                    for declarator in child.named_children:
-                        if declarator.type in ["field_declarator", "declarator"]:
+                    # Look for the declarator field
+                    declarator = child.child_by_field_name("declarator")
+                    if declarator:
+                        # Handle array declarators and other complex declarators
+                        if declarator.type == "array_declarator":
+                            # The identifier is inside the array_declarator
                             name = self._get_identifier_text(declarator, content)
-                            if name:
-                                field_names.append(name)
+                        elif declarator.type == "pointer_declarator":
+                            # Navigate through pointer declarators
+                            name = self._get_identifier_text(declarator, content)
+                        else:
+                            # Direct identifier
+                            name = self._get_identifier_text(declarator, content)
+
+                        if name:
+                            field_names.append(name)
+                    else:
+                        # Fall back to looking for field identifiers directly
+                        for node in child.named_children:
+                            if node.type == "field_identifier":
+                                field_names.append(node.text.decode("utf-8"))
 
                     for name in field_names:
-                        fields.append({
-                            "type": field_type,
-                            "name": name
-                        })
+                        fields.append({"type": field_type, "name": name})
 
         return fields
 
@@ -517,15 +600,16 @@ class CParser:
         # Check storage class specifiers before the return type
         for child in func_node.children:
             if child.type == "storage_class_specifier":
-                if content[child.start_byte:child.end_byte] == "static":
+                if content[child.start_byte : child.end_byte] == "static":
                     return True
         return False
 
     def _is_inline_function(self, func_node: Node, content: str) -> bool:
         """Check if function is declared inline."""
         for child in func_node.children:
-            if child.type == "type_qualifier" and content[child.start_byte:child.end_byte] == "inline":
-                return True
+            if child.type == "storage_class_specifier":
+                if content[child.start_byte : child.end_byte] == "inline":
+                    return True
         return False
 
     def _find_containing_function(self, node: Node, content: str) -> str | None:
@@ -555,7 +639,7 @@ class CParser:
     def _find_declarator(self, declaration_node: Node) -> Node | None:
         """Find the declarator in a declaration."""
         for child in declaration_node.named_children:
-            if child.type in ["init_declarator", "declarator"]:
+            if child.type in ["init_declarator", "declarator", "identifier"]:
                 return child
         return None
 
@@ -564,10 +648,18 @@ class CParser:
         # Get the type specifier
         type_parts = []
         for child in declaration_node.children:
-            if child.type in ["primitive_type", "type_identifier", "struct_specifier", "union_specifier", "enum_specifier"]:
-                type_parts.append(content[child.start_byte:child.end_byte])
-            elif child.type == "type_qualifier":
-                type_parts.append(content[child.start_byte:child.end_byte])
+            if (
+                child.type
+                in [
+                    "primitive_type",
+                    "type_identifier",
+                    "struct_specifier",
+                    "union_specifier",
+                    "enum_specifier",
+                ]
+                or child.type == "type_qualifier"
+            ):
+                type_parts.append(content[child.start_byte : child.end_byte])
 
         return " ".join(type_parts)
 
@@ -596,21 +688,30 @@ class CParser:
     def _is_static_declaration(self, node: Node, content: str) -> bool:
         """Check if declaration has static storage class."""
         for child in node.children:
-            if child.type == "storage_class_specifier" and content[child.start_byte:child.end_byte] == "static":
+            if (
+                child.type == "storage_class_specifier"
+                and content[child.start_byte : child.end_byte] == "static"
+            ):
                 return True
         return False
 
     def _is_extern_declaration(self, node: Node, content: str) -> bool:
         """Check if declaration has extern storage class."""
         for child in node.children:
-            if child.type == "storage_class_specifier" and content[child.start_byte:child.end_byte] == "extern":
+            if (
+                child.type == "storage_class_specifier"
+                and content[child.start_byte : child.end_byte] == "extern"
+            ):
                 return True
         return False
 
     def _is_const_declaration(self, node: Node, content: str) -> bool:
         """Check if declaration has const qualifier."""
         for child in node.children:
-            if child.type == "type_qualifier" and content[child.start_byte:child.end_byte] == "const":
+            if (
+                child.type == "type_qualifier"
+                and content[child.start_byte : child.end_byte] == "const"
+            ):
                 return True
         return False
 
@@ -630,7 +731,7 @@ class CParser:
                 properties={
                     "fields": fields,
                     "is_anonymous": name.startswith("_anon_"),
-                }
+                },
             )
             self.nodes.append(c_node)
 
@@ -652,12 +753,11 @@ class CParser:
                             value_node = child.child_by_field_name("value")
                             value = None
                             if value_node:
-                                value = content[value_node.start_byte:value_node.end_byte].strip()
+                                value = content[
+                                    value_node.start_byte : value_node.end_byte
+                                ].strip()
 
-                            values.append({
-                                "name": value_name,
-                                "value": value
-                            })
+                            values.append({"name": value_name, "value": value})
 
             c_node = CNode(
                 node_type="enum",
@@ -668,6 +768,6 @@ class CParser:
                 properties={
                     "values": values,
                     "is_anonymous": name.startswith("_anon_"),
-                }
+                },
             )
             self.nodes.append(c_node)

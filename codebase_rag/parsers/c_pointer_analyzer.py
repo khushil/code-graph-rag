@@ -8,6 +8,7 @@ from tree_sitter import Node
 @dataclass
 class PointerInfo:
     """Information about a pointer variable or parameter."""
+
     name: str
     base_type: str
     indirection_level: int  # Number of * (e.g., int** has level 2)
@@ -20,11 +21,16 @@ class PointerInfo:
 @dataclass
 class FunctionPointerInfo:
     """Information about a function pointer."""
+
     name: str
     return_type: str
     param_types: list[str]
-    assigned_functions: list[str] = field(default_factory=list)  # Functions assigned to this pointer
-    invocation_sites: list[tuple[int, str]] = field(default_factory=list)  # (line, context)
+    assigned_functions: list[str] = field(
+        default_factory=list
+    )  # Functions assigned to this pointer
+    invocation_sites: list[tuple[int, str]] = field(
+        default_factory=list
+    )  # (line, context)
 
 
 class CPointerAnalyzer:
@@ -33,9 +39,13 @@ class CPointerAnalyzer:
     def __init__(self):
         self.pointers: dict[str, PointerInfo] = {}
         self.function_pointers: dict[str, FunctionPointerInfo] = {}
-        self.pointer_relationships: list[tuple[str, str, str, str]] = []  # (source, rel_type, target_type, target)
+        self.pointer_relationships: list[
+            tuple[str, str, str, str]
+        ] = []  # (source, rel_type, target_type, target)
 
-    def analyze_pointers(self, root: Node, content: str) -> tuple[dict[str, PointerInfo], list[tuple[str, str, str, str]]]:
+    def analyze_pointers(
+        self, root: Node, content: str
+    ) -> tuple[dict[str, PointerInfo], list[tuple[str, str, str, str]]]:
         """Analyze all pointer-related constructs in the AST."""
         self.pointers = {}
         self.function_pointers = {}
@@ -87,12 +97,59 @@ class CPointerAnalyzer:
                 value = child.child_by_field_name("value")
 
                 if declarator:
-                    pointer_info = self._extract_pointer_info(declarator)
-                    if pointer_info:
-                        self.pointers[pointer_info.name] = pointer_info
+                    # Check for function pointer first
+                    if self._is_function_pointer(declarator):
+                        fp_info = self._extract_function_pointer_info(declarator)
+                        if fp_info:
+                            self.function_pointers[fp_info.name] = fp_info
 
-                        # Check if it's initialized with address-of
-                        if value and value.type == "unary_expression":
+                            # Also create a pointer info entry
+                            pointer_info = PointerInfo(
+                                name=fp_info.name,
+                                base_type="function",
+                                indirection_level=1,
+                                is_function_pointer=True,
+                                location=(
+                                    declarator.start_point[0] + 1,
+                                    declarator.start_point[1],
+                                ),
+                            )
+                            self.pointers[pointer_info.name] = pointer_info
+
+                            # Check for initial assignment
+                            if value and value.type == "identifier":
+                                func_name = value.text.decode("utf-8")
+                                fp_info.assigned_functions.append(func_name)
+                                self.pointer_relationships.append(
+                                    (fp_info.name, "ASSIGNS_FP", "function", func_name)
+                                )
+                    else:
+                        # Regular pointer
+                        pointer_info = self._extract_pointer_info(declarator)
+                        if pointer_info:
+                            self.pointers[pointer_info.name] = pointer_info
+
+                            # Check if it's initialized with address-of
+                            if value and value.type == "pointer_expression":
+                                # pointer_expression is &something
+                                if (
+                                    len(value.children) >= 2
+                                    and value.children[0].text == b"&"
+                                ):
+                                    operand = value.children[1]
+                                    if operand.type == "identifier":
+                                        target_name = operand.text.decode("utf-8")
+                                        pointer_info.points_to = target_name
+                                        self.pointer_relationships.append(
+                                            (
+                                                pointer_info.name,
+                                                "POINTS_TO",
+                                                "variable",
+                                                target_name,
+                                            )
+                                        )
+                        elif value and value.type == "unary_expression":
+                            # Handle old-style unary_expression for compatibility
                             operator = value.child_by_field_name("operator")
                             if operator and operator.text == b"&":
                                 operand = value.child_by_field_name("argument")
@@ -100,27 +157,34 @@ class CPointerAnalyzer:
                                     target_name = operand.text.decode("utf-8")
                                     pointer_info.points_to = target_name
                                     self.pointer_relationships.append(
-                                        (pointer_info.name, "POINTS_TO", "variable", target_name)
+                                        (
+                                            pointer_info.name,
+                                            "POINTS_TO",
+                                            "variable",
+                                            target_name,
+                                        )
                                     )
-
-                        # Check for function pointer
-                        if self._is_function_pointer(declarator):
-                            fp_info = self._extract_function_pointer_info(declarator)
-                            if fp_info:
-                                self.function_pointers[fp_info.name] = fp_info
-                                pointer_info.is_function_pointer = True
 
             elif child.type == "declarator":
                 # Handle simple declarations without initialization
-                pointer_info = self._extract_pointer_info(child)
-                if pointer_info:
-                    self.pointers[pointer_info.name] = pointer_info
+                if self._is_function_pointer(child):
+                    fp_info = self._extract_function_pointer_info(child)
+                    if fp_info:
+                        self.function_pointers[fp_info.name] = fp_info
 
-                    if self._is_function_pointer(child):
-                        fp_info = self._extract_function_pointer_info(child)
-                        if fp_info:
-                            self.function_pointers[fp_info.name] = fp_info
-                            pointer_info.is_function_pointer = True
+                        # Also create a pointer info entry
+                        pointer_info = PointerInfo(
+                            name=fp_info.name,
+                            base_type="function",
+                            indirection_level=1,
+                            is_function_pointer=True,
+                            location=(child.start_point[0] + 1, child.start_point[1]),
+                        )
+                        self.pointers[pointer_info.name] = pointer_info
+                else:
+                    pointer_info = self._extract_pointer_info(child)
+                    if pointer_info:
+                        self.pointers[pointer_info.name] = pointer_info
 
     def _analyze_assignment(self, node: Node, context: str | None) -> None:
         """Analyze pointer assignments."""
@@ -132,6 +196,17 @@ class CPointerAnalyzer:
 
         # Get the left-hand side identifier
         lhs_name = self._get_identifier_name(left)
+
+        # Check if it's a function pointer assignment
+        if lhs_name and lhs_name in self.function_pointers:
+            # Assignment to a function pointer
+            if right.type == "identifier":
+                func_name = right.text.decode("utf-8")
+                self.function_pointers[lhs_name].assigned_functions.append(func_name)
+                self.pointer_relationships.append(
+                    (lhs_name, "ASSIGNS_FP", "function", func_name)
+                )
+                return
         if not lhs_name:
             return
 
@@ -162,9 +237,16 @@ class CPointerAnalyzer:
             if lhs_name in self.pointers and rhs_name in self.pointers:
                 # Pointer aliasing
                 if self.pointers[rhs_name].points_to:
-                    self.pointers[lhs_name].points_to = self.pointers[rhs_name].points_to
+                    self.pointers[lhs_name].points_to = self.pointers[
+                        rhs_name
+                    ].points_to
                     self.pointer_relationships.append(
-                        (lhs_name, "POINTS_TO", "variable", self.pointers[rhs_name].points_to)
+                        (
+                            lhs_name,
+                            "POINTS_TO",
+                            "variable",
+                            self.pointers[rhs_name].points_to,
+                        )
                     )
 
     def _analyze_pointer_call(self, node: Node, context: str | None) -> None:
@@ -175,7 +257,9 @@ class CPointerAnalyzer:
 
         # Handle (*fp)() pattern
         if function_node.type == "parenthesized_expression":
-            inner = function_node.children[1] if len(function_node.children) > 1 else None
+            inner = (
+                function_node.children[1] if len(function_node.children) > 1 else None
+            )
             if inner and inner.type == "unary_expression":
                 operator = inner.child_by_field_name("operator")
                 if operator and operator.text == b"*":
@@ -184,9 +268,13 @@ class CPointerAnalyzer:
                         fp_name = self._get_identifier_name(operand)
                         if fp_name and fp_name in self.function_pointers:
                             line = node.start_point[0] + 1
-                            self.function_pointers[fp_name].invocation_sites.append((line, context or "global"))
+                            self.function_pointers[fp_name].invocation_sites.append(
+                                (line, context or "global")
+                            )
                             # Add INVOKES_FP relationships for all assigned functions
-                            for func in self.function_pointers[fp_name].assigned_functions:
+                            for func in self.function_pointers[
+                                fp_name
+                            ].assigned_functions:
                                 self.pointer_relationships.append(
                                     (fp_name, "INVOKES_FP", "function", func)
                                 )
@@ -196,7 +284,9 @@ class CPointerAnalyzer:
             fp_name = function_node.text.decode("utf-8")
             if fp_name in self.function_pointers:
                 line = node.start_point[0] + 1
-                self.function_pointers[fp_name].invocation_sites.append((line, context or "global"))
+                self.function_pointers[fp_name].invocation_sites.append(
+                    (line, context or "global")
+                )
                 for func in self.function_pointers[fp_name].assigned_functions:
                     self.pointer_relationships.append(
                         (fp_name, "INVOKES_FP", "function", func)
@@ -262,7 +352,7 @@ class CPointerAnalyzer:
             name=name,
             base_type=base_type,
             indirection_level=indirection_level,
-            location=(declarator.start_point[0] + 1, declarator.start_point[1])
+            location=(declarator.start_point[0] + 1, declarator.start_point[1]),
         )
 
     def _is_function_pointer(self, declarator: Node) -> bool:
@@ -276,7 +366,9 @@ class CPointerAnalyzer:
         # Check if we end up with a function declarator
         return current is not None and current.type == "function_declarator"
 
-    def _extract_function_pointer_info(self, declarator: Node) -> FunctionPointerInfo | None:
+    def _extract_function_pointer_info(
+        self, declarator: Node
+    ) -> FunctionPointerInfo | None:
         """Extract function pointer information."""
         # Navigate to the function declarator
         current = declarator
@@ -313,7 +405,7 @@ class CPointerAnalyzer:
                     return FunctionPointerInfo(
                         name=name,
                         return_type="unknown",  # Would need parent context
-                        param_types=param_types
+                        param_types=param_types,
                     )
 
         return None
@@ -370,7 +462,7 @@ class CPointerAnalyzer:
         type_parts = []
         for child in param_node.children:
             if child.type in ["primitive_type", "type_identifier"]:
-                type_parts.append(self.content[child.start_byte:child.end_byte])
+                type_parts.append(self.content[child.start_byte : child.end_byte])
             elif child.type == "pointer_declarator":
                 type_parts.append("*")
 

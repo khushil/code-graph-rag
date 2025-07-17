@@ -67,8 +67,10 @@ def test_function_call_relationships_are_created(
 
     actual_calls = [
         c
-        for c in cast(MagicMock, mock_ingestor.ensure_relationship_batch).call_args_list
-        if c.args[1] == "CALLS"
+        for c in cast(
+            "MagicMock", mock_ingestor.ensure_relationship_batch
+        ).call_args_list
+        if len(c.args) >= 2 and c.args[1] == "CALLS"
     ]
 
     assert len(actual_calls) == len(expected_calls)
