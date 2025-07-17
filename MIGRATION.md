@@ -49,6 +49,29 @@ uv sync --extra treesitter-full
 make dev
 ```
 
+### Step 2: Tree-sitter API Changes
+
+If you have custom parsers or extensions, note that we've updated to handle tree-sitter API changes:
+
+- The `captures()` method now returns a dictionary format: `{"capture_name": [nodes]}`
+- We support both the old tuple format and new dict format for compatibility
+- Tree-sitter-c version is pinned to 0.23.1 for compatibility
+
+Example of the updated pattern:
+```python
+# Old pattern (still supported)
+for node, name in query.captures(root_node):
+    if name == "function":
+        # process node
+
+# New pattern (recommended)
+captures = query.captures(root_node)
+for capture_name, nodes in captures.items():
+    if capture_name == "function":
+        for node in nodes:
+            # process node
+```
+
 ### Step 2: Re-ingest Your Codebase
 
 To take advantage of new features, re-ingest your codebase:

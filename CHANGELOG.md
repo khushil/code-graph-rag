@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed tree-sitter-c compatibility issues by handling API changes in captures() method
+- Fixed C parser to properly extract typedefs, preprocessor directives, and function parameters
+- Fixed pointer analyzer to detect pointer initializations and function pointers
+- Fixed kernel analyzer to handle None nodes and improve pattern matching
+- Updated integration test mocks to match actual API calls
+- Fixed 25 failing tests bringing test failure count to 0
+
 ### Added
 
 #### Multi-Provider LLM Support
