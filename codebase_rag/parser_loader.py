@@ -129,7 +129,7 @@ def load_parsers() -> tuple[dict[str, Parser], dict[str, Any]]:
                     "calls": language.query(call_patterns) if call_patterns else None,
                     "config": lang_config,
                 }
-                
+
                 # Add data flow queries for supported languages
                 if lang_name == "python":
                     lang_queries["assignments"] = language.query("""
@@ -146,7 +146,7 @@ def load_parsers() -> tuple[dict[str, Parser], dict[str, Any]]:
                     lang_queries["assignments"] = language.query("""
                         (assignment_expression) @assignment
                     """)
-                    
+
                 queries[lang_name] = lang_queries
 
                 available_languages.append(lang_name)

@@ -1,9 +1,7 @@
 """BDD (Behavior-Driven Development) parser for Gherkin files."""
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
 import re
-from loguru import logger
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -12,9 +10,9 @@ class BDDStep:
     keyword: str  # Given, When, Then, And, But
     text: str
     line_number: int
-    parameters: List[str] = field(default_factory=list)  # Extracted parameters
-    data_table: Optional[List[List[str]]] = None
-    doc_string: Optional[str] = None
+    parameters: list[str] = field(default_factory=list)  # Extracted parameters
+    data_table: list[list[str]] | None = None
+    doc_string: str | None = None
 
 
 @dataclass
@@ -22,9 +20,9 @@ class BDDScenario:
     """Represents a BDD scenario."""
     name: str
     line_number: int
-    tags: List[str] = field(default_factory=list)
-    steps: List[BDDStep] = field(default_factory=list)
-    examples: Optional[List[Dict[str, str]]] = None  # For scenario outlines
+    tags: list[str] = field(default_factory=list)
+    steps: list[BDDStep] = field(default_factory=list)
+    examples: list[dict[str, str]] | None = None  # For scenario outlines
 
 
 @dataclass
@@ -33,15 +31,15 @@ class BDDFeature:
     name: str
     description: str
     line_number: int
-    tags: List[str] = field(default_factory=list)
-    background: Optional[BDDScenario] = None
-    scenarios: List[BDDScenario] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    background: BDDScenario | None = None
+    scenarios: list[BDDScenario] = field(default_factory=list)
     file_path: str = ""
 
 
 class BDDParser:
     """Parser for Gherkin (.feature) files."""
-    
+
     # Gherkin keywords
     FEATURE_KEYWORDS = ["Feature:", "功能:", "Fonctionnalité:", "Característica:"]
     SCENARIO_KEYWORDS = ["Scenario:", "场景:", "Scénario:", "Escenario:"]
@@ -51,38 +49,37 @@ class BDDParser:
     STEP_KEYWORDS = ["Given", "When", "Then", "And", "But", "*",
                      "假如", "当", "那么", "而且", "但是",
                      "Soit", "Quand", "Alors", "Et", "Mais"]
-    
+
     def __init__(self):
-        self.features: List[BDDFeature] = []
-        self.step_definitions: Dict[str, List[Tuple[str, str]]] = {}  # pattern -> [(file, function)]
-        
+        self.features: list[BDDFeature] = []
+        self.step_definitions: dict[str, list[tuple[str, str]]] = {}  # pattern -> [(file, function)]
+
     def parse_feature_file(self, file_path: str, content: str) -> BDDFeature:
         """Parse a Gherkin feature file."""
         lines = content.split('\n')
         line_num = 0
-        
+
         feature = None
         current_element = None
         current_tags = []
         in_doc_string = False
-        doc_string_delimiter = None
         doc_string_content = []
         in_data_table = False
         data_table_content = []
-        
+
         while line_num < len(lines):
             line = lines[line_num].strip()
             line_num += 1
-            
+
             # Skip empty lines and comments
             if not line or line.startswith('#'):
                 continue
-                
+
             # Handle tags
             if line.startswith('@'):
                 current_tags.extend(self._parse_tags(line))
                 continue
-                
+
             # Handle doc strings
             if line in ['"""', "'''"]:
                 if in_doc_string:
@@ -94,13 +91,12 @@ class BDDParser:
                 else:
                     # Start of doc string
                     in_doc_string = True
-                    doc_string_delimiter = line
                 continue
-                
+
             if in_doc_string:
                 doc_string_content.append(line)
                 continue
-                
+
             # Handle data tables
             if line.startswith('|'):
                 if not in_data_table:
@@ -115,7 +111,7 @@ class BDDParser:
                         current_element.steps[-1].data_table = data_table_content
                     in_data_table = False
                     data_table_content = []
-                    
+
             # Parse feature
             if self._is_keyword(line, self.FEATURE_KEYWORDS):
                 feature_name = self._get_text_after_keyword(line, self.FEATURE_KEYWORDS)
@@ -131,14 +127,14 @@ class BDDParser:
                 desc_lines = []
                 while line_num < len(lines):
                     next_line = lines[line_num].strip()
-                    if (not next_line or next_line.startswith('@') or 
+                    if (not next_line or next_line.startswith('@') or
                         self._is_any_keyword(next_line)):
                         break
                     desc_lines.append(next_line)
                     line_num += 1
                 feature.description = '\n'.join(desc_lines)
                 continue
-                
+
             # Parse background
             if self._is_keyword(line, self.BACKGROUND_KEYWORDS):
                 background_name = self._get_text_after_keyword(line, self.BACKGROUND_KEYWORDS)
@@ -150,7 +146,7 @@ class BDDParser:
                 current_element = feature.background
                 current_tags = []
                 continue
-                
+
             # Parse scenario
             if self._is_keyword(line, self.SCENARIO_KEYWORDS):
                 scenario_name = self._get_text_after_keyword(line, self.SCENARIO_KEYWORDS)
@@ -163,7 +159,7 @@ class BDDParser:
                 current_element = scenario
                 current_tags = []
                 continue
-                
+
             # Parse scenario outline
             if self._is_keyword(line, self.SCENARIO_OUTLINE_KEYWORDS):
                 scenario_name = self._get_text_after_keyword(line, self.SCENARIO_OUTLINE_KEYWORDS)
@@ -176,7 +172,7 @@ class BDDParser:
                 current_element = scenario
                 current_tags = []
                 continue
-                
+
             # Parse examples
             if self._is_keyword(line, self.EXAMPLES_KEYWORDS):
                 # Read examples table
@@ -184,49 +180,49 @@ class BDDParser:
                 # Skip to table header
                 while line_num < len(lines) and not lines[line_num].strip().startswith('|'):
                     line_num += 1
-                    
+
                 if line_num < len(lines):
                     # Parse header
                     header = self._parse_table_row(lines[line_num])
                     line_num += 1
-                    
+
                     # Parse rows
                     while line_num < len(lines) and lines[line_num].strip().startswith('|'):
                         row = self._parse_table_row(lines[line_num])
                         example = dict(zip(header, row))
                         examples.append(example)
                         line_num += 1
-                        
+
                 if current_element:
                     current_element.examples = examples
                 continue
-                
+
             # Parse steps
             if self._is_keyword(line, self.STEP_KEYWORDS):
                 step_keyword = self._get_keyword(line, self.STEP_KEYWORDS)
                 step_text = self._get_text_after_keyword(line, [step_keyword])
-                
+
                 # Extract parameters (words in quotes or angle brackets)
                 parameters = self._extract_step_parameters(step_text)
-                
+
                 step = BDDStep(
                     keyword=step_keyword,
                     text=step_text,
                     line_number=line_num,
                     parameters=parameters
                 )
-                
+
                 if current_element and hasattr(current_element, 'steps'):
                     current_element.steps.append(step)
-                    
+
         return feature
-        
-    def parse_step_definition(self, content: str, file_path: str, language: str) -> List[Tuple[str, str, str]]:
+
+    def parse_step_definition(self, content: str, file_path: str, language: str) -> list[tuple[str, str, str]]:
         """Parse step definitions from code files.
         Returns list of (pattern, function_name, step_type) tuples.
         """
         step_definitions = []
-        
+
         if language == "python":
             # Behave-style step definitions
             pattern = r'@(given|when|then|step)\s*\([\'"](.+?)[\'"]\)\s*\n\s*def\s+(\w+)'
@@ -236,7 +232,7 @@ class BDDParser:
                 step_pattern = match.group(2)
                 function_name = match.group(3)
                 step_definitions.append((step_pattern, function_name, step_type))
-                
+
         elif language in ["javascript", "typescript"]:
             # Cucumber-style step definitions
             pattern = r'(Given|When|Then)\s*\(/(.+?)/,\s*(?:async\s+)?(?:function\s*)?(?:\w+\s*)?\('
@@ -246,7 +242,7 @@ class BDDParser:
                 step_pattern = match.group(2)
                 # Function name not easily extractable in JS
                 step_definitions.append((step_pattern, "anonymous", step_type))
-                
+
         elif language == "java":
             # Java Cucumber step definitions
             pattern = r'@(Given|When|Then|And|But)\s*\("(.+?)"\)\s*\n\s*public\s+void\s+(\w+)'
@@ -256,24 +252,24 @@ class BDDParser:
                 step_pattern = match.group(2)
                 function_name = match.group(3)
                 step_definitions.append((step_pattern, function_name, step_type))
-                
+
         return step_definitions
-        
-    def match_step_to_definition(self, step: BDDStep, step_definitions: List[Tuple[str, str, str]]) -> Optional[str]:
+
+    def match_step_to_definition(self, step: BDDStep, step_definitions: list[tuple[str, str, str]]) -> str | None:
         """Match a BDD step to its implementing function."""
         step_text = step.text
-        
+
         for pattern, function_name, step_type in step_definitions:
             # Check if step type matches (Given/When/Then)
             if step_type != "step" and step_type.lower() != step.keyword.lower():
                 continue
-                
+
             # Try to match the pattern
             if self._matches_pattern(step_text, pattern):
                 return function_name
-                
+
         return None
-        
+
     def _matches_pattern(self, text: str, pattern: str) -> bool:
         """Check if a step text matches a step definition pattern."""
         # If pattern looks like it's already a regex (contains regex metacharacters)
@@ -283,72 +279,72 @@ class BDDParser:
                 return bool(re.match(f"^{pattern}$", text))
             except re.error:
                 pass
-        
+
         # Otherwise, convert step definition pattern to regex
         # Replace parameter placeholders with regex groups
         regex_pattern = pattern
-        
+
         # Common parameter patterns in different frameworks
         # {parameter} or <parameter> -> captured group
         regex_pattern = re.sub(r'\{[^}]+\}', r'(.+)', regex_pattern)
         regex_pattern = re.sub(r'<[^>]+>', r'(.+)', regex_pattern)
-        
+
         try:
             return bool(re.match(f"^{regex_pattern}$", text))
         except re.error:
             return False
-                
-    def _is_keyword(self, line: str, keywords: List[str]) -> bool:
+
+    def _is_keyword(self, line: str, keywords: list[str]) -> bool:
         """Check if line starts with any of the keywords."""
         for keyword in keywords:
             if line.startswith(keyword):
                 return True
         return False
-        
+
     def _is_any_keyword(self, line: str) -> bool:
         """Check if line starts with any Gherkin keyword."""
-        all_keywords = (self.FEATURE_KEYWORDS + self.SCENARIO_KEYWORDS + 
-                       self.SCENARIO_OUTLINE_KEYWORDS + self.BACKGROUND_KEYWORDS + 
+        all_keywords = (self.FEATURE_KEYWORDS + self.SCENARIO_KEYWORDS +
+                       self.SCENARIO_OUTLINE_KEYWORDS + self.BACKGROUND_KEYWORDS +
                        self.EXAMPLES_KEYWORDS + self.STEP_KEYWORDS)
         return self._is_keyword(line, all_keywords)
-        
-    def _get_keyword(self, line: str, keywords: List[str]) -> str:
+
+    def _get_keyword(self, line: str, keywords: list[str]) -> str:
         """Get the keyword that the line starts with."""
         for keyword in keywords:
             if line.startswith(keyword):
                 return keyword
         return ""
-        
-    def _get_text_after_keyword(self, line: str, keywords: List[str]) -> str:
+
+    def _get_text_after_keyword(self, line: str, keywords: list[str]) -> str:
         """Get the text after the keyword."""
         for keyword in keywords:
             if line.startswith(keyword):
                 return line[len(keyword):].strip()
         return line
-        
-    def _parse_tags(self, line: str) -> List[str]:
+
+    def _parse_tags(self, line: str) -> list[str]:
         """Parse tags from a line starting with @."""
         return [tag.strip() for tag in line.split() if tag.startswith('@')]
-        
-    def _parse_table_row(self, line: str) -> List[str]:
+
+    def _parse_table_row(self, line: str) -> list[str]:
         """Parse a table row from a line starting with |."""
         cells = line.split('|')[1:-1]  # Skip first and last empty elements
         return [cell.strip() for cell in cells]
-        
-    def _extract_step_parameters(self, step_text: str) -> List[str]:
+
+    def _extract_step_parameters(self, step_text: str) -> list[str]:
         """Extract parameters from step text (quoted strings or angle brackets)."""
         parameters = []
-        
+
         # Extract quoted strings
         quoted = re.findall(r'"([^"]+)"', step_text)
         parameters.extend(quoted)
-        
+
         # Extract single-quoted strings
         single_quoted = re.findall(r"'([^']+)'", step_text)
         parameters.extend(single_quoted)
-        
+
         # Extract angle bracket parameters (for scenario outlines)
         angle_params = re.findall(r'<([^>]+)>', step_text)
         parameters.extend(angle_params)
-        
+
         return parameters

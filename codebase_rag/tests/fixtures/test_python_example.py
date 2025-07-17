@@ -1,6 +1,7 @@
-import pytest
 import unittest
-from unittest.mock import Mock
+
+import pytest
+
 
 # Example production code to test
 def add(a, b):
@@ -13,10 +14,10 @@ def multiply(a, b):
 
 class Calculator:
     """Simple calculator class."""
-    
+
     def __init__(self):
         self.history = []
-    
+
     def calculate(self, operation, a, b):
         if operation == "add":
             result = a + b
@@ -24,7 +25,7 @@ class Calculator:
             result = a * b
         else:
             raise ValueError(f"Unknown operation: {operation}")
-        
+
         self.history.append((operation, a, b, result))
         return result
 
@@ -64,27 +65,27 @@ def test_calculator_add(calculator):
 # Unittest style tests
 class TestCalculatorUnittest(unittest.TestCase):
     """Test calculator using unittest framework."""
-    
+
     def setUp(self):
         """Set up test fixtures."""
         self.calculator = Calculator()
-    
+
     def test_calculate_addition(self):
         """Test addition operation."""
         result = self.calculator.calculate("add", 10, 5)
         self.assertEqual(result, 15)
         self.assertEqual(len(self.calculator.history), 1)
-    
+
     def test_calculate_multiplication(self):
         """Test multiplication operation."""
         result = self.calculator.calculate("multiply", 4, 7)
         self.assertEqual(result, 28)
-    
+
     def test_invalid_operation(self):
         """Test invalid operation raises error."""
         with self.assertRaises(ValueError):
             self.calculator.calculate("divide", 10, 2)
-    
+
     def tearDown(self):
         """Clean up after tests."""
         self.calculator = None

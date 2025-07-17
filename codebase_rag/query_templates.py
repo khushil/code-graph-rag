@@ -284,7 +284,7 @@ C_LANGUAGE_QUERIES = """
 ```cypher
 // Linux kernel module init/exit functions
 MATCH (f:Function)
-WHERE f.name IN ['init_module', 'cleanup_module'] OR 
+WHERE f.name IN ['init_module', 'cleanup_module'] OR
       ANY(decorator IN f.decorators WHERE decorator CONTAINS '__init' OR decorator CONTAINS '__exit')
 RETURN f.qualified_name AS entry_point, f.name AS function_name
 ```
@@ -316,7 +316,7 @@ COMPLEX_QUERIES = """
 // Find who introduced vulnerabilities
 MATCH (m:Module)-[:HAS_VULNERABILITY]->(v:Vulnerability)
 WHERE v.severity IN ['HIGH', 'CRITICAL']
-RETURN m.path AS file, v.type AS vulnerability, m.git_last_modified AS last_modified, 
+RETURN m.path AS file, v.type AS vulnerability, m.git_last_modified AS last_modified,
        v.severity AS severity
 ORDER BY m.git_last_modified DESC
 ```
@@ -327,7 +327,7 @@ ORDER BY m.git_last_modified DESC
 MATCH (m:Module)-[:DEFINES]->(f:Function)
 WHERE m.git_last_modified > datetime().subtract(duration('P30D'))
 OPTIONAL MATCH (f)<-[:TESTS]-(t:TestCase)
-RETURN m.path AS file, f.name AS function, 
+RETURN m.path AS file, f.name AS function,
        CASE WHEN t IS NULL THEN 'UNTESTED' ELSE 'TESTED' END AS test_status,
        m.git_last_modified AS last_modified
 ORDER BY m.git_last_modified DESC
@@ -338,7 +338,7 @@ ORDER BY m.git_last_modified DESC
 // External dependencies with known vulnerabilities
 MATCH (p:Project)-[:DEPENDS_ON_EXTERNAL]->(e:ExternalPackage)
 OPTIONAL MATCH (e)-[:HAS_KNOWN_VULNERABILITY]->(v:Vulnerability)
-RETURN e.name AS package, e.version_spec AS version, 
+RETURN e.name AS package, e.version_spec AS version,
        collect(v.cwe_id) AS known_vulnerabilities
 ```
 

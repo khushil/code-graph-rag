@@ -2,16 +2,16 @@ from typing import cast
 
 from loguru import logger
 from pydantic_ai import Agent, Tool
+from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.gemini import GeminiModel, GeminiModelSettings
 from pydantic_ai.models.openai import (
     OpenAIModel,
     OpenAIResponsesModel,
 )
-from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.google_vertex import GoogleVertexProvider, VertexAiRegion
 from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.providers.anthropic import AnthropicProvider
 
 from ..config import detect_provider_from_model, settings
 from ..prompts import (

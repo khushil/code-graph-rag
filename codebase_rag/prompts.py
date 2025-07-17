@@ -2,7 +2,6 @@
 #  SINGLE SOURCE OF TRUTH: THE GRAPH SCHEMA
 # ======================================================================================
 # Import enhanced schema from query_templates module
-from .query_templates import ENHANCED_GRAPH_SCHEMA, get_all_query_templates
 
 GRAPH_SCHEMA_AND_RULES = """
 You are an expert AI assistant for a system that uses a Neo4j graph database.

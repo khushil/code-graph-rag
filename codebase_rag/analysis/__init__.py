@@ -1,9 +1,9 @@
 """Analysis modules for advanced code analysis features."""
 
-from .data_flow import DataFlowAnalyzer, VariableNode, FlowEdge
-from .dependencies import DependencyAnalyzer, Export, Import, DependencyInfo
-from .security import SecurityAnalyzer, Vulnerability, TaintFlow
-from .inheritance import InheritanceAnalyzer, InheritanceInfo, MethodOverride, ClassInfo
+from .data_flow import DataFlowAnalyzer, FlowEdge, VariableNode
+from .dependencies import DependencyAnalyzer, DependencyInfo, Export, Import
+from .inheritance import ClassInfo, InheritanceAnalyzer, InheritanceInfo, MethodOverride
+from .security import SecurityAnalyzer, TaintFlow, Vulnerability
 
 __all__ = [
     "DataFlowAnalyzer", "VariableNode", "FlowEdge",

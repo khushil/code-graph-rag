@@ -96,7 +96,7 @@ class AppConfig(BaseSettings):
                 raise ValueError(
                     "Configuration Error: OPENAI_API_KEY is required when using OpenAI models."
                 )
-        
+
         if "anthropic" in providers_in_use:
             if not self.ANTHROPIC_API_KEY:
                 raise ValueError(

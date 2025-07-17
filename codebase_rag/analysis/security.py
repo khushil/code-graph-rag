@@ -1,13 +1,13 @@
 """Security analysis for vulnerability detection and path analysis."""
 
-from dataclasses import dataclass
-from typing import List, Dict, Set, Optional, Tuple
-from pathlib import Path
-from tree_sitter import Node
-from loguru import logger
+import json
 import re
 import subprocess
-import json
+from dataclasses import dataclass
+from pathlib import Path
+
+from loguru import logger
+from tree_sitter import Node
 
 
 @dataclass
@@ -19,8 +19,8 @@ class Vulnerability:
     file_path: str
     line_number: int
     code_snippet: str
-    cwe_id: Optional[str] = None  # Common Weakness Enumeration ID
-    recommendation: Optional[str] = None
+    cwe_id: str | None = None  # Common Weakness Enumeration ID
+    recommendation: str | None = None
     confidence: float = 0.8  # 0.0 to 1.0
 
 
@@ -28,38 +28,38 @@ class Vulnerability:
 class TaintFlow:
     """Represents a taint flow from source to sink."""
     source_type: str  # "user_input", "file", "network", "env_var"
-    source_location: Tuple[str, int]  # (file, line)
+    source_location: tuple[str, int]  # (file, line)
     sink_type: str  # "exec", "sql", "file_write", "network", "kernel"
-    sink_location: Tuple[str, int]  # (file, line)
-    flow_path: List[Tuple[str, int]]  # List of (file, line) tuples
+    sink_location: tuple[str, int]  # (file, line)
+    flow_path: list[tuple[str, int]]  # List of (file, line) tuples
     is_validated: bool = False
 
 
 class SecurityAnalyzer:
     """Analyzes code for security vulnerabilities and taint flows."""
-    
-    def __init__(self, parser, queries: Dict, language: str):
+
+    def __init__(self, parser, queries: dict, language: str):
         self.parser = parser
         self.queries = queries
         self.language = language
-        self._source_lines: List[str] = []
-        
+        self._source_lines: list[str] = []
+
         # Common vulnerability patterns by language
         self.vulnerability_patterns = self._init_vulnerability_patterns()
-        
+
         # Taint sources and sinks
         self.taint_sources = self._init_taint_sources()
         self.taint_sinks = self._init_taint_sinks()
-        
-    def analyze_file(self, file_path: str, content: str, module_qn: str) -> List[Vulnerability]:
+
+    def analyze_file(self, file_path: str, content: str, module_qn: str) -> list[Vulnerability]:
         """Analyze a file for security vulnerabilities."""
         self._source_lines = content.split("\n")
         vulnerabilities = []
-        
+
         # Parse the file
         tree = self.parser.parse(content.encode("utf-8"))
         root_node = tree.root_node
-        
+
         # Run different analyses based on language
         if self.language == "python":
             vulnerabilities.extend(self._analyze_python_vulnerabilities(root_node, file_path))
@@ -67,30 +67,30 @@ class SecurityAnalyzer:
             vulnerabilities.extend(self._analyze_javascript_vulnerabilities(root_node, file_path))
         elif self.language == "c":
             vulnerabilities.extend(self._analyze_c_vulnerabilities(root_node, file_path))
-        
+
         # Run pattern-based detection for all languages
         vulnerabilities.extend(self._detect_pattern_vulnerabilities(content, file_path))
-        
+
         # Run semgrep if available
         semgrep_vulns = self._run_semgrep_analysis(file_path, content)
         vulnerabilities.extend(semgrep_vulns)
-        
+
         return vulnerabilities
-    
-    def analyze_taint_flow(self, file_path: str, content: str, data_flows: List) -> List[TaintFlow]:
+
+    def analyze_taint_flow(self, file_path: str, content: str, data_flows: list) -> list[TaintFlow]:
         """Analyze taint flows from sources to sinks."""
         taint_flows = []
-        
+
         # Parse the file
         tree = self.parser.parse(content.encode("utf-8"))
         root_node = tree.root_node
-        
+
         # Find taint sources
         sources = self._find_taint_sources(root_node, file_path)
-        
+
         # Find taint sinks
         sinks = self._find_taint_sinks(root_node, file_path)
-        
+
         # Trace flows from sources to sinks using data flow information
         for source in sources:
             for sink in sinks:
@@ -105,13 +105,13 @@ class SecurityAnalyzer:
                         is_validated=self._check_validation(flow_path, root_node)
                     )
                     taint_flows.append(taint_flow)
-        
+
         return taint_flows
-    
-    def _analyze_python_vulnerabilities(self, root_node: Node, file_path: str) -> List[Vulnerability]:
+
+    def _analyze_python_vulnerabilities(self, root_node: Node, file_path: str) -> list[Vulnerability]:
         """Analyze Python-specific vulnerabilities."""
         vulnerabilities = []
-        
+
         # Check for dangerous function calls
         call_query = """
         (call
@@ -121,17 +121,17 @@ class SecurityAnalyzer:
             arguments: (argument_list) @args
         ) @call
         """
-        
+
         try:
             query = self.parser.language.query(call_query)
             captures = query.captures(root_node)
-            
+
             # Tree-sitter returns a dict of capture_name -> list of nodes
             for node in captures.get("call", []):
                 func_node = node.child_by_field_name("function")
                 if func_node:
                     func_name = self._get_node_text(func_node)
-                    
+
                     # Check for eval/exec
                     if func_name in ["eval", "exec"]:
                         vuln = Vulnerability(
@@ -145,7 +145,7 @@ class SecurityAnalyzer:
                             recommendation="Avoid using eval/exec, use ast.literal_eval or safer alternatives"
                         )
                         vulnerabilities.append(vuln)
-                    
+
                     # Check for SQL queries (handle both execute and cursor.execute)
                     elif func_name.endswith("execute") or func_name.endswith("executemany") or ".execute" in func_name:
                         # Check if using string concatenation
@@ -162,7 +162,7 @@ class SecurityAnalyzer:
                                 recommendation="Use parameterized queries instead of string concatenation"
                             )
                             vulnerabilities.append(vuln)
-                    
+
                     # Check for subprocess with shell=True
                     elif func_name in ["subprocess.run", "subprocess.call", "subprocess.Popen"]:
                         args = node.child_by_field_name("arguments")
@@ -180,13 +180,13 @@ class SecurityAnalyzer:
                             vulnerabilities.append(vuln)
         except Exception as e:
             logger.error(f"Error analyzing Python vulnerabilities: {e}")
-        
+
         return vulnerabilities
-    
-    def _analyze_javascript_vulnerabilities(self, root_node: Node, file_path: str) -> List[Vulnerability]:
+
+    def _analyze_javascript_vulnerabilities(self, root_node: Node, file_path: str) -> list[Vulnerability]:
         """Analyze JavaScript/TypeScript vulnerabilities."""
         vulnerabilities = []
-        
+
         # Check for dangerous patterns
         js_query = """
         [
@@ -200,11 +200,11 @@ class SecurityAnalyzer:
             ) @method_call
         ]
         """
-        
+
         try:
             query = self.parser.language.query(js_query)
             captures = query.captures(root_node)
-            
+
             # Check eval usage
             for node in captures.get("func", []):
                 if self._get_node_text(node) == "eval":
@@ -219,7 +219,7 @@ class SecurityAnalyzer:
                         recommendation="Avoid eval(), use JSON.parse() or safer alternatives"
                     )
                     vulnerabilities.append(vuln)
-            
+
             # Check for innerHTML
             for node in captures.get("method", []):
                 if self._get_node_text(node) == "innerHTML":
@@ -236,24 +236,24 @@ class SecurityAnalyzer:
                     vulnerabilities.append(vuln)
         except Exception as e:
             logger.error(f"Error analyzing JavaScript vulnerabilities: {e}")
-        
+
         return vulnerabilities
-    
-    def _analyze_c_vulnerabilities(self, root_node: Node, file_path: str) -> List[Vulnerability]:
+
+    def _analyze_c_vulnerabilities(self, root_node: Node, file_path: str) -> list[Vulnerability]:
         """Analyze C-specific vulnerabilities."""
         vulnerabilities = []
-        
+
         # Check for dangerous function calls
         c_query = """
         (call_expression
             function: (identifier) @func
         ) @call
         """
-        
+
         try:
             query = self.parser.language.query(c_query)
             captures = query.captures(root_node)
-            
+
             dangerous_functions = {
                 "strcpy": ("buffer_overflow", "Use strncpy or strlcpy instead"),
                 "strcat": ("buffer_overflow", "Use strncat or strlcat instead"),
@@ -262,7 +262,7 @@ class SecurityAnalyzer:
                 "scanf": ("buffer_overflow", "Use fgets with sscanf instead"),
                 "memcpy": ("buffer_overflow", "Ensure destination buffer is large enough"),
             }
-            
+
             for node in captures.get("func", []):
                 func_name = self._get_node_text(node)
                 if func_name in dangerous_functions:
@@ -280,31 +280,31 @@ class SecurityAnalyzer:
                     vulnerabilities.append(vuln)
         except Exception as e:
             logger.error(f"Error analyzing C vulnerabilities: {e}")
-        
+
         # Check for race conditions in kernel code
         if "kernel" in file_path.lower() or "driver" in file_path.lower():
             vulnerabilities.extend(self._check_kernel_race_conditions(root_node, file_path))
-        
+
         return vulnerabilities
-    
-    def _check_kernel_race_conditions(self, root_node: Node, file_path: str) -> List[Vulnerability]:
+
+    def _check_kernel_race_conditions(self, root_node: Node, file_path: str) -> list[Vulnerability]:
         """Check for potential race conditions in kernel code."""
         vulnerabilities = []
-        
+
         # Look for patterns indicating potential race conditions
         # This is a simplified check - real kernel analysis would be more complex
-        
+
         # Check for missing locks around shared data access
         # Look for global variables being accessed without locks
-        
+
         return vulnerabilities
-    
-    def _detect_pattern_vulnerabilities(self, content: str, file_path: str) -> List[Vulnerability]:
+
+    def _detect_pattern_vulnerabilities(self, content: str, file_path: str) -> list[Vulnerability]:
         """Detect vulnerabilities using regex patterns."""
         vulnerabilities = []
-        
+
         patterns = self.vulnerability_patterns.get(self.language, {})
-        
+
         for pattern_name, pattern_info in patterns.items():
             regex = pattern_info["regex"]
             for match in re.finditer(regex, content, re.MULTILINE):
@@ -320,29 +320,29 @@ class SecurityAnalyzer:
                     recommendation=pattern_info.get("recommendation")
                 )
                 vulnerabilities.append(vuln)
-        
+
         return vulnerabilities
-    
-    def _run_semgrep_analysis(self, file_path: str, content: str) -> List[Vulnerability]:
+
+    def _run_semgrep_analysis(self, file_path: str, content: str) -> list[Vulnerability]:
         """Run semgrep analysis if available."""
         vulnerabilities = []
-        
+
         try:
             # Check if semgrep is available
             result = subprocess.run(["semgrep", "--version"], capture_output=True, text=True)
             if result.returncode != 0:
                 return vulnerabilities
-            
+
             # Write content to temporary file for semgrep
             import tempfile
             with tempfile.NamedTemporaryFile(mode='w', suffix=Path(file_path).suffix, delete=False) as tmp:
                 tmp.write(content)
                 tmp_path = tmp.name
-            
+
             # Run semgrep with auto config
             cmd = ["semgrep", "--config=auto", "--json", tmp_path]
             result = subprocess.run(cmd, capture_output=True, text=True)
-            
+
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 for finding in data.get("results", []):
@@ -357,69 +357,73 @@ class SecurityAnalyzer:
                         recommendation=finding.get("extra", {}).get("fix", "")
                     )
                     vulnerabilities.append(vuln)
-            
+
             # Clean up temp file
             Path(tmp_path).unlink()
-            
+
         except Exception as e:
             logger.debug(f"Semgrep analysis not available or failed: {e}")
-        
+
         return vulnerabilities
-    
-    def _find_taint_sources(self, root_node: Node, file_path: str) -> List[Tuple[str, int]]:
+
+    def _find_taint_sources(self, root_node: Node, file_path: str) -> list[tuple[str, int]]:
         """Find potential taint sources in the code."""
         sources = []
-        
+
         if self.language == "python":
             # Look for input(), sys.argv, request parameters, etc.
-            source_patterns = [
-                ("input", "user_input"),
-                ("sys.argv", "user_input"),
-                ("request.args", "user_input"),
-                ("request.form", "user_input"),
-                ("request.json", "user_input"),
-                ("open", "file"),
-                ("environ", "env_var"),
-            ]
-            
+            # TODO: Implement source_patterns when taint analysis is added
+            # source_patterns = [
+            #     ("input", "user_input"),
+            #     ("sys.argv", "user_input"),
+            #     ("request.args", "user_input"),
+            #     ("request.form", "user_input"),
+            #     ("request.json", "user_input"),
+            #     ("open", "file"),
+            #     ("environ", "env_var"),
+            # ]
+
             # Search for these patterns in function calls and attribute access
             # This is simplified - real implementation would use proper AST queries
-            
+            pass
+
         return sources
-    
-    def _find_taint_sinks(self, root_node: Node, file_path: str) -> List[Tuple[str, int]]:
+
+    def _find_taint_sinks(self, root_node: Node, file_path: str) -> list[tuple[str, int]]:
         """Find potential taint sinks in the code."""
         sinks = []
-        
+
         if self.language == "python":
             # Look for exec, eval, SQL queries, file operations, etc.
-            sink_patterns = [
-                ("exec", "exec"),
-                ("eval", "exec"),
-                ("execute", "sql"),
-                ("executemany", "sql"),
-                ("subprocess", "exec"),
-                ("open", "file_write"),
-                ("write", "file_write"),
-            ]
-            
+            # TODO: Implement sink_patterns when taint analysis is added
+            # sink_patterns = [
+            #     ("exec", "exec"),
+            #     ("eval", "exec"),
+            #     ("execute", "sql"),
+            #     ("executemany", "sql"),
+            #     ("subprocess", "exec"),
+            #     ("open", "file_write"),
+            #     ("write", "file_write"),
+            # ]
+
             # Search for these patterns in function calls
             # This is simplified - real implementation would use proper AST queries
-            
+            pass
+
         return sinks
-    
-    def _trace_taint_flow(self, source: Tuple, sink: Tuple, data_flows: List) -> List[Tuple[str, int]]:
+
+    def _trace_taint_flow(self, source: tuple, sink: tuple, data_flows: list) -> list[tuple[str, int]]:
         """Trace taint flow from source to sink using data flow information."""
         # This would use the data flow analysis to trace paths
         # For now, return empty list
         return []
-    
-    def _check_validation(self, flow_path: List[Tuple[str, int]], root_node: Node) -> bool:
+
+    def _check_validation(self, flow_path: list[tuple[str, int]], root_node: Node) -> bool:
         """Check if the taint flow has validation."""
         # Check for validation functions like sanitize, escape, etc.
         return False
-    
-    def _init_vulnerability_patterns(self) -> Dict[str, Dict]:
+
+    def _init_vulnerability_patterns(self) -> dict[str, dict]:
         """Initialize regex patterns for vulnerability detection."""
         return {
             "python": {
@@ -443,7 +447,7 @@ class SecurityAnalyzer:
             "javascript": {
                 "hardcoded_password": {
                     "regex": r'(?i)(password|passwd|pwd|secret|api_key)\s*=\s*["\'][^"\']+["\']',
-                    "type": "hardcoded_secret", 
+                    "type": "hardcoded_secret",
                     "severity": "high",
                     "description": "Hardcoded password or secret detected",
                     "cwe_id": "CWE-798",
@@ -461,23 +465,23 @@ class SecurityAnalyzer:
                 },
             }
         }
-    
-    def _init_taint_sources(self) -> Dict[str, List[str]]:
+
+    def _init_taint_sources(self) -> dict[str, list[str]]:
         """Initialize taint source patterns by language."""
         return {
             "python": ["input", "sys.argv", "request", "environ"],
             "javascript": ["process.argv", "req.body", "req.query", "req.params"],
             "c": ["argv", "getenv", "scanf", "gets", "read"],
         }
-    
-    def _init_taint_sinks(self) -> Dict[str, List[str]]:
+
+    def _init_taint_sinks(self) -> dict[str, list[str]]:
         """Initialize taint sink patterns by language."""
         return {
             "python": ["eval", "exec", "execute", "subprocess", "open"],
             "javascript": ["eval", "innerHTML", "document.write", "exec"],
             "c": ["system", "execve", "strcpy", "sprintf", "fopen"],
         }
-    
+
     def _has_string_concatenation(self, args_node: Node) -> bool:
         """Check if arguments contain string concatenation."""
         # Look for + operator or % formatting in arguments
@@ -494,7 +498,7 @@ class SecurityAnalyzer:
                 if child.type == "formatted_string_literal":
                     return True
         return False
-    
+
     def _has_shell_true(self, args_node: Node) -> bool:
         """Check if arguments contain shell=True."""
         for child in args_node.children:
@@ -505,28 +509,28 @@ class SecurityAnalyzer:
                     if self._get_node_text(name) == "shell" and self._get_node_text(value) == "True":
                         return True
         return False
-    
-    def _extract_cwe_from_metadata(self, metadata: Dict) -> Optional[str]:
+
+    def _extract_cwe_from_metadata(self, metadata: dict) -> str | None:
         """Extract CWE ID from semgrep metadata."""
         cwe = metadata.get("cwe", [])
         if cwe and isinstance(cwe, list) and len(cwe) > 0:
             return cwe[0]
         return None
-    
+
     def _get_line_snippet(self, node: Node) -> str:
         """Get the line of code containing the node."""
         line_num = node.start_point[0]
         if 0 <= line_num < len(self._source_lines):
             return self._source_lines[line_num].strip()
         return ""
-    
+
     def _get_node_text(self, node: Node) -> str:
         """Get text content of a node."""
         start_line = node.start_point[0]
         start_col = node.start_point[1]
         end_line = node.end_point[0]
         end_col = node.end_point[1]
-        
+
         if start_line == end_line:
             return self._source_lines[start_line][start_col:end_col]
         else:

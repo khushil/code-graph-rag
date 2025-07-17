@@ -1,9 +1,7 @@
 """Test file and framework detection across multiple languages."""
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
-from pathlib import Path
 import re
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -11,15 +9,15 @@ class TestFrameworkInfo:
     """Information about detected test framework."""
     language: str
     framework: str
-    test_patterns: List[str] = field(default_factory=list)
-    assertion_patterns: List[str] = field(default_factory=list)
-    setup_patterns: List[str] = field(default_factory=list)
-    teardown_patterns: List[str] = field(default_factory=list)
+    test_patterns: list[str] = field(default_factory=list)
+    assertion_patterns: list[str] = field(default_factory=list)
+    setup_patterns: list[str] = field(default_factory=list)
+    teardown_patterns: list[str] = field(default_factory=list)
 
 
 class TestDetector:
     """Detects test files and frameworks across different languages."""
-    
+
     # Test file patterns by language
     TEST_FILE_PATTERNS = {
         "python": [
@@ -65,7 +63,7 @@ class TestDetector:
             r".*Tests\.java$",
         ],
     }
-    
+
     # Framework detection patterns
     FRAMEWORK_PATTERNS = {
         "python": {
@@ -165,7 +163,7 @@ class TestDetector:
             },
         },
     }
-    
+
     # BDD patterns
     BDD_PATTERNS = {
         "gherkin": {
@@ -182,45 +180,45 @@ class TestDetector:
             "decorators": [r"@Given", r"@When", r"@Then", r"@And", r"@But"],
         },
     }
-    
+
     def __init__(self):
-        self.detected_frameworks: Dict[str, TestFrameworkInfo] = {}
-        
+        self.detected_frameworks: dict[str, TestFrameworkInfo] = {}
+
     def is_test_file(self, file_path: str, language: str) -> bool:
         """Check if a file is likely a test file based on its path and name."""
         if language not in self.TEST_FILE_PATTERNS:
             return False
-            
+
         for pattern in self.TEST_FILE_PATTERNS[language]:
             if re.search(pattern, file_path, re.IGNORECASE):
                 return True
-                
+
         return False
-        
-    def detect_framework(self, content: str, language: str, file_path: str) -> Optional[TestFrameworkInfo]:
+
+    def detect_framework(self, content: str, language: str, file_path: str) -> TestFrameworkInfo | None:
         """Detect which test framework is being used in the file."""
         if language not in self.FRAMEWORK_PATTERNS:
             return None
-            
+
         # Check each framework for the language
         for framework, patterns in self.FRAMEWORK_PATTERNS[language].items():
             score = 0
-            
+
             # Check imports
             for import_pattern in patterns.get("imports", []):
                 if re.search(import_pattern, content, re.MULTILINE):
                     score += 3
-                    
+
             # Check decorators
             for decorator_pattern in patterns.get("decorators", []):
                 if re.search(decorator_pattern, content, re.MULTILINE):
                     score += 2
-                    
+
             # Check functions
             for function_pattern in patterns.get("functions", []):
                 if re.search(function_pattern, content, re.MULTILINE):
                     score += 1
-                    
+
             # If we have a reasonable score, this is likely the framework
             # Lower threshold for JavaScript since it often doesn't have imports
             threshold = 2 if language == "javascript" else 3
@@ -233,36 +231,36 @@ class TestDetector:
                     setup_patterns=self._get_setup_patterns(framework),
                     teardown_patterns=self._get_teardown_patterns(framework),
                 )
-                
+
         return None
-        
+
     def is_bdd_file(self, file_path: str) -> bool:
         """Check if a file is a BDD feature file."""
         return file_path.endswith(".feature")
-        
-    def detect_bdd_framework(self, content: str, language: str) -> Optional[str]:
+
+    def detect_bdd_framework(self, content: str, language: str) -> str | None:
         """Detect which BDD framework is being used."""
         if language == "python":
             for pattern in self.BDD_PATTERNS["python_behave"]["decorators"]:
                 if re.search(pattern, content, re.MULTILINE):
                     return "behave"
-                    
+
         elif language in ["javascript", "typescript"]:
             for pattern in self.BDD_PATTERNS["javascript_cucumber"]["functions"]:
                 if re.search(pattern, content, re.MULTILINE):
                     return "cucumber"
-                    
+
         elif language == "java":
             for pattern in self.BDD_PATTERNS["java_cucumber"]["decorators"]:
                 if re.search(pattern, content, re.MULTILINE):
                     return "cucumber"
-                    
+
         return None
-        
-    def extract_test_names(self, content: str, framework_info: TestFrameworkInfo) -> List[str]:
+
+    def extract_test_names(self, content: str, framework_info: TestFrameworkInfo) -> list[str]:
         """Extract test function/method names from the content."""
         test_names = []
-        
+
         for pattern in framework_info.test_patterns:
             # Extract the test name from patterns like "def test_name" or "it('should...')"
             if "test_" in pattern:
@@ -270,29 +268,29 @@ class TestDetector:
                 matches = re.finditer(pattern + r"(\w+)", content, re.MULTILINE)
                 for match in matches:
                     test_names.append(match.group(1))
-                    
+
             elif "describe" in pattern or "it" in pattern:
                 # JavaScript style test descriptions
                 matches = re.finditer(pattern + r"['\"]([^'\"]+)['\"]", content, re.MULTILINE)
                 for match in matches:
                     test_names.append(match.group(1))
-                    
+
         return test_names
-        
-    def extract_assertions(self, content: str, framework_info: TestFrameworkInfo) -> List[Tuple[int, str]]:
+
+    def extract_assertions(self, content: str, framework_info: TestFrameworkInfo) -> list[tuple[int, str]]:
         """Extract assertions with their line numbers."""
         assertions = []
-        
+
         lines = content.split('\n')
         for i, line in enumerate(lines):
             for pattern in framework_info.assertion_patterns:
                 if re.search(pattern, line):
                     assertions.append((i + 1, line.strip()))
                     break
-                    
+
         return assertions
-        
-    def _get_setup_patterns(self, framework: str) -> List[str]:
+
+    def _get_setup_patterns(self, framework: str) -> list[str]:
         """Get setup method patterns for a framework."""
         setup_patterns = {
             "pytest": [r"def setup", r"def setup_method", r"def setup_class", r"@pytest\.fixture"],
@@ -302,8 +300,8 @@ class TestDetector:
             "junit": [r"@Before", r"@BeforeClass", r"@BeforeEach"],
         }
         return setup_patterns.get(framework, [])
-        
-    def _get_teardown_patterns(self, framework: str) -> List[str]:
+
+    def _get_teardown_patterns(self, framework: str) -> list[str]:
         """Get teardown method patterns for a framework."""
         teardown_patterns = {
             "pytest": [r"def teardown", r"def teardown_method", r"def teardown_class"],

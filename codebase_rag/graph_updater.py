@@ -1,7 +1,7 @@
 import os
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import toml
 from loguru import logger
@@ -9,17 +9,17 @@ from tree_sitter import Node, Parser
 
 from codebase_rag.services.graph_service import MemgraphIngestor
 
-from .language_config import LanguageConfig, get_language_config
-from .parsers.c_parser import CParser
-from .parsers.test_parser import TestParser
-from .parsers.test_detector import TestDetector
-from .parsers.bdd_parser import BDDParser
 from .analysis.data_flow import DataFlowAnalyzer
 from .analysis.dependencies import DependencyAnalyzer
-from .analysis.security import SecurityAnalyzer
 from .analysis.inheritance import InheritanceAnalyzer
-from .version_control.git_analyzer import GitAnalyzer
+from .analysis.security import SecurityAnalyzer
+from .language_config import LanguageConfig, get_language_config
+from .parsers.bdd_parser import BDDParser
+from .parsers.c_parser import CParser
 from .parsers.config_parser import ConfigParser
+from .parsers.test_detector import TestDetector
+from .parsers.test_parser import TestParser
+from .version_control.git_analyzer import GitAnalyzer
 
 
 class GraphUpdater:
@@ -43,13 +43,13 @@ class GraphUpdater:
         self.ast_cache: dict[Path, tuple[Node, str]] = {}
         self.module_dependencies: dict[str, set[str]] = defaultdict(set)  # Track module dependencies
         self.module_exports: dict[str, list] = defaultdict(list)  # Track module exports
-        
+
         # Initialize Git analyzer if repo is a git repository
         self.git_analyzer = None
         try:
             self.git_analyzer = GitAnalyzer(repo_path)
             logger.info("Git repository detected, version control analysis enabled")
-        except Exception as e:
+        except Exception:
             logger.info("Not a git repository or git analysis unavailable")
         self.ignore_dirs = {
             ".git",
@@ -84,10 +84,10 @@ class GraphUpdater:
         )
         logger.info("--- Pass 3: Processing Function Calls from AST Cache ---")
         self._process_function_calls()
-        
+
         logger.info("--- Pass 4: Detecting Circular Dependencies ---")
         self._detect_and_report_circular_dependencies()
-        
+
         # Analyze repository-level Git information
         if self.git_analyzer:
             self._analyze_repository_git_info()
@@ -291,7 +291,7 @@ class GraphUpdater:
             # Check if this is a test file
             test_detector = TestDetector()
             is_test = test_detector.is_test_file(str(file_path), language)
-            
+
             if is_test:
                 # Use test parser for test files
                 self._ingest_test_file(file_path, source_bytes.decode("utf-8"), module_qn, language)
@@ -302,23 +302,23 @@ class GraphUpdater:
                 # Use regular parsing for other files
                 self._ingest_top_level_functions(root_node, module_qn, language)
                 self._ingest_classes_and_methods(root_node, module_qn, language)
-                
+
             # Perform data flow analysis if enabled
             if language in ["python", "javascript", "typescript", "c"]:
                 self._analyze_data_flow(file_path, source_bytes.decode("utf-8"), module_qn, language)
-                
+
             # Perform dependency analysis
             if language in ["python", "javascript", "typescript", "c"]:
                 self._analyze_dependencies(file_path, source_bytes.decode("utf-8"), module_qn, language)
-                
+
             # Perform security analysis
             if language in ["python", "javascript", "typescript", "c"]:
                 self._analyze_security(file_path, source_bytes.decode("utf-8"), module_qn, language)
-                
+
             # Perform inheritance analysis
             if language in ["python", "javascript", "typescript", "java", "cpp"]:
                 self._analyze_inheritance(file_path, source_bytes.decode("utf-8"), module_qn, language)
-                
+
             # Perform Git analysis if available
             if self.git_analyzer:
                 self._analyze_git_info(file_path, module_qn)
@@ -544,11 +544,11 @@ class GraphUpdater:
     def _ingest_c_file(self, file_path: Path, content: str, module_qn: str) -> None:
         """Ingest C-specific nodes and relationships."""
         logger.info(f"  Processing C file with enhanced parser: {file_path}")
-        
+
         # Create C parser instance
         c_parser = CParser(self.parsers["c"], self.queries["c"])
         nodes, relationships = c_parser.parse_file(str(file_path), content)
-        
+
         # Ingest nodes
         for node in nodes:
             if node.node_type == "function":
@@ -572,7 +572,7 @@ class GraphUpdater:
                     "DEFINES",
                     ("Function", "qualified_name", func_qn),
                 )
-                
+
             elif node.node_type == "struct":
                 struct_qn = f"{module_qn}.{node.name}"
                 self.ingestor.ensure_node_batch(
@@ -590,7 +590,7 @@ class GraphUpdater:
                     "DEFINES_STRUCT",
                     ("Struct", "qualified_name", struct_qn),
                 )
-                
+
             elif node.node_type == "enum":
                 enum_qn = f"{module_qn}.{node.name}"
                 self.ingestor.ensure_node_batch(
@@ -607,7 +607,7 @@ class GraphUpdater:
                     "DEFINES_ENUM",
                     ("Enum", "qualified_name", enum_qn),
                 )
-                
+
             elif node.node_type == "typedef":
                 typedef_qn = f"{module_qn}.{node.name}"
                 self.ingestor.ensure_node_batch(
@@ -623,7 +623,7 @@ class GraphUpdater:
                     "DEFINES_TYPEDEF",
                     ("Typedef", "qualified_name", typedef_qn),
                 )
-                
+
             elif node.node_type == "macro":
                 macro_qn = f"{module_qn}.{node.name}"
                 self.ingestor.ensure_node_batch(
@@ -640,7 +640,7 @@ class GraphUpdater:
                     "DEFINES_MACRO",
                     ("Macro", "qualified_name", macro_qn),
                 )
-                
+
             elif node.node_type == "global_var":
                 var_qn = f"{module_qn}.{node.name}"
                 self.ingestor.ensure_node_batch(
@@ -659,7 +659,7 @@ class GraphUpdater:
                     "DEFINES_VARIABLE",
                     ("GlobalVariable", "qualified_name", var_qn),
                 )
-                
+
             elif node.node_type == "function_pointer":
                 fp_qn = f"{module_qn}.{node.name}"
                 self.ingestor.ensure_node_batch(
@@ -676,7 +676,7 @@ class GraphUpdater:
                     "DEFINES_FUNCTION_POINTER",
                     ("FunctionPointer", "qualified_name", fp_qn),
                 )
-                
+
             elif node.node_type == "syscall":
                 syscall_qn = f"{module_qn}.sys_{node.name}"
                 self.ingestor.ensure_node_batch(
@@ -692,7 +692,7 @@ class GraphUpdater:
                     "DEFINES_SYSCALL",
                     ("Syscall", "qualified_name", syscall_qn),
                 )
-                
+
             elif node.node_type == "concurrency_primitive":
                 lock_qn = f"{module_qn}.{node.name}"
                 self.ingestor.ensure_node_batch(
@@ -710,7 +710,7 @@ class GraphUpdater:
                     "DEFINES_LOCK",
                     ("ConcurrencyPrimitive", "qualified_name", lock_qn),
                 )
-                
+
             elif node.node_type == "kernel_module":
                 km_qn = f"{module_qn}.module"
                 self.ingestor.ensure_node_batch(
@@ -728,7 +728,7 @@ class GraphUpdater:
                     "IS_KERNEL_MODULE",
                     ("KernelModule", "qualified_name", km_qn),
                 )
-        
+
         # Ingest relationships
         for source, rel_type, target_type, target in relationships:
             if rel_type == "CALLS":
@@ -779,7 +779,7 @@ class GraphUpdater:
                 func_qn = f"{module_qn}.{target}"
                 self.ingestor.ensure_relationship_batch(
                     ("FunctionPointer", "qualified_name", fp_qn),
-                    "INVOKES_FP", 
+                    "INVOKES_FP",
                     ("Function", "qualified_name", func_qn),
                 )
             elif rel_type in ["LOCKS", "UNLOCKS"]:
@@ -1026,11 +1026,11 @@ class GraphUpdater:
     def _ingest_test_file(self, file_path: Path, content: str, module_qn: str, language: str) -> None:
         """Ingest test file with test-specific parsing."""
         logger.info(f"  Processing test file: {file_path}")
-        
+
         # Create test parser
         test_parser = TestParser(self.parsers[language], self.queries[language], language)
         nodes, relationships = test_parser.parse_test_file(str(file_path), content)
-        
+
         # Ingest test nodes
         for node in nodes:
             if node.node_type == "test_suite":
@@ -1050,7 +1050,7 @@ class GraphUpdater:
                     "CONTAINS_TEST_SUITE",
                     ("TestSuite", "qualified_name", suite_qn),
                 )
-                
+
             elif node.node_type == "test_case":
                 test_qn = f"{module_qn}.{node.name}"
                 self.ingestor.ensure_node_batch(
@@ -1077,7 +1077,7 @@ class GraphUpdater:
                         "CONTAINS_TEST",
                         ("TestCase", "qualified_name", test_qn),
                     )
-                    
+
             elif node.node_type == "test_function":
                 test_qn = f"{module_qn}.{node.name}"
                 self.ingestor.ensure_node_batch(
@@ -1095,7 +1095,7 @@ class GraphUpdater:
                     "CONTAINS_TEST",
                     ("TestFunction", "qualified_name", test_qn),
                 )
-                
+
         # Ingest test relationships
         for source, rel_type, target_type, target in relationships:
             if rel_type == "CONTAINS_TEST":
@@ -1129,7 +1129,7 @@ class GraphUpdater:
                     "ASSERTS",
                     ("Assertion", "text", target),
                 )
-                
+
         # Also parse for regular functions to find what's being tested
         self._ingest_top_level_functions(
             self.ast_cache[file_path][0], module_qn, language
@@ -1137,19 +1137,19 @@ class GraphUpdater:
         self._ingest_classes_and_methods(
             self.ast_cache[file_path][0], module_qn, language
         )
-        
+
     def _parse_bdd_file(self, file_path: Path) -> None:
         """Parse BDD feature files."""
         logger.info(f"  Parsing BDD feature file: {file_path}")
-        
+
         try:
             content = file_path.read_text()
             relative_path = file_path.relative_to(self.repo_path)
-            
+
             # Create BDD parser
             bdd_parser = BDDParser()
             feature = bdd_parser.parse_feature_file(str(file_path), content)
-            
+
             # Create feature node
             feature_qn = f"{self.project_name}.features.{feature.name.replace(' ', '_')}"
             self.ingestor.ensure_node_batch(
@@ -1162,14 +1162,14 @@ class GraphUpdater:
                     "path": str(relative_path),
                 }
             )
-            
+
             # Link to project
             self.ingestor.ensure_relationship_batch(
                 ("Project", "name", self.project_name),
                 "CONTAINS_FEATURE",
                 ("BDDFeature", "qualified_name", feature_qn),
             )
-            
+
             # Create scenario nodes
             for scenario in feature.scenarios:
                 scenario_qn = f"{feature_qn}.{scenario.name.replace(' ', '_')}"
@@ -1187,7 +1187,7 @@ class GraphUpdater:
                     "CONTAINS_SCENARIO",
                     ("BDDScenario", "qualified_name", scenario_qn),
                 )
-                
+
                 # Create step nodes
                 for i, step in enumerate(scenario.steps):
                     step_id = f"{scenario_qn}.step_{i}"
@@ -1205,26 +1205,26 @@ class GraphUpdater:
                         "HAS_STEP",
                         ("BDDStep", "qualified_name", step_id),
                     )
-                    
+
         except Exception as e:
             logger.error(f"Failed to parse BDD file {file_path}: {e}")
-    
+
     def _analyze_data_flow(self, file_path: Path, content: str, module_qn: str, language: str) -> None:
         """Perform data flow analysis on a file (REQ-DF-1, REQ-DF-2)."""
         logger.info(f"  Analyzing data flow in: {file_path}")
-        
+
         try:
             # Create data flow analyzer
             analyzer = DataFlowAnalyzer(self.parsers[language], self.queries[language], language)
             variables, flows = analyzer.analyze_file(str(file_path), content, module_qn)
-            
+
             # Ingest variable nodes
             for var in variables:
                 self.ingestor.ensure_node_batch(
                     "Variable",
                     var.to_dict()
                 )
-                
+
                 # Link variable to its scope
                 if var.scope:
                     if "." in var.scope:
@@ -1251,13 +1251,13 @@ class GraphUpdater:
                             "DECLARES_VARIABLE",
                             ("Variable", "qualified_name", var.qualified_name)
                         )
-            
+
             # Ingest flow edges
             for flow in flows:
                 # Create FLOWS_TO relationships
                 source_type = self._determine_node_type(flow.source)
                 target_type = self._determine_node_type(flow.target)
-                
+
                 if source_type and target_type:
                     self.ingestor.ensure_relationship_batch(
                         (source_type, "qualified_name", flow.source),
@@ -1265,7 +1265,7 @@ class GraphUpdater:
                         (target_type, "qualified_name", flow.target),
                         properties=flow.to_dict()
                     )
-                    
+
                     # Create specific flow type edges
                     if flow.flow_type == "modifies":
                         self.ingestor.ensure_relationship_batch(
@@ -1281,31 +1281,31 @@ class GraphUpdater:
                             (target_type, "qualified_name", flow.target),
                             properties={"line_number": flow.line_number}
                         )
-                        
+
             logger.info(f"  Found {len(variables)} variables and {len(flows)} data flows")
-            
+
         except Exception as e:
             logger.error(f"Failed to analyze data flow in {file_path}: {e}")
-    
+
     def _analyze_dependencies(self, file_path: Path, content: str, module_qn: str, language: str) -> None:
         """Analyze module dependencies and exports."""
         logger.info(f"  Analyzing dependencies in: {file_path}")
-        
+
         try:
             # Create dependency analyzer
             analyzer = DependencyAnalyzer(self.parsers[language], self.queries[language], language)
             exports, imports = analyzer.analyze_file(str(file_path), content, module_qn)
-            
+
             # Store exports for this module
             self.module_exports[module_qn] = exports
-            
+
             # Track dependencies
             for imp in imports:
                 # Resolve the import to a module qualified name
                 dep_module = self._resolve_import_to_module(imp.source_module, module_qn, language)
                 if dep_module:
                     self.module_dependencies[module_qn].add(dep_module)
-                    
+
                     # Create IMPORTS relationship
                     self.ingestor.ensure_relationship_batch(
                         (("Module", "qualified_name", module_qn),
@@ -1313,7 +1313,7 @@ class GraphUpdater:
                          ("Module", "qualified_name", dep_module),
                          {"symbol": imp.symbol, "line_number": imp.line_number})
                     )
-                    
+
                     # If importing specific symbol, create REQUIRES relationship
                     if imp.symbol != "*" and imp.import_type == "named":
                         # Try to find the target symbol
@@ -1324,26 +1324,26 @@ class GraphUpdater:
                              ("", "qualified_name", target_qn),  # Could be function, class, or variable
                              {"line_number": imp.line_number})
                         )
-            
+
             # Create EXPORTS relationships for this module's exports
             for export in exports:
                 # Create relationship from module to exported symbol
                 symbol_qn = f"{module_qn}.{export.symbol}"
                 symbol_label = self._determine_export_node_type(export.export_type)
-                
+
                 self.ingestor.ensure_relationship_batch(
                     (("Module", "qualified_name", module_qn),
                      "EXPORTS",
                      (symbol_label, "qualified_name", symbol_qn),
                      {"line_number": export.line_number, "is_default": export.is_default})
                 )
-            
+
             logger.info(f"  Found {len(exports)} exports and {len(imports)} imports")
-            
+
         except Exception as e:
             logger.error(f"Failed to analyze dependencies in {file_path}: {e}")
-    
-    def _resolve_import_to_module(self, import_path: str, current_module: str, language: str) -> Optional[str]:
+
+    def _resolve_import_to_module(self, import_path: str, current_module: str, language: str) -> str | None:
         """Resolve an import path to a module qualified name."""
         if language == "python":
             # Handle relative imports
@@ -1351,7 +1351,7 @@ class GraphUpdater:
                 # Count dots for relative level
                 level = len(import_path) - len(import_path.lstrip("."))
                 relative_path = import_path[level:]
-                
+
                 # Go up 'level' directories from current module
                 parts = current_module.split(".")
                 if level < len(parts):
@@ -1363,22 +1363,22 @@ class GraphUpdater:
             else:
                 # Absolute import - return as is
                 return import_path
-        
+
         # For other languages, return the import path as is
         return import_path
-    
+
     def _determine_export_node_type(self, export_type: str) -> str:
         """Determine the graph node label based on export type."""
         type_mapping = {
             "function": "Function",
-            "class": "Class", 
+            "class": "Class",
             "variable": "Variable",
             "namespace": "Module",
             "default": "Module"
         }
         return type_mapping.get(export_type, "Module")
-    
-    def _determine_node_type(self, qualified_name: str) -> Optional[str]:
+
+    def _determine_node_type(self, qualified_name: str) -> str | None:
         """Determine the node type from a qualified name."""
         if qualified_name.startswith("return_of_"):
             return "Function"
@@ -1389,19 +1389,19 @@ class GraphUpdater:
             if "." in qualified_name:
                 return "Variable"
             return None
-    
+
     def _detect_and_report_circular_dependencies(self) -> None:
         """Detect and report circular dependencies in the module graph."""
         try:
             # Create a dependency analyzer to use its circular detection
             analyzer = DependencyAnalyzer(None, {}, "")
             cycles = analyzer.detect_circular_dependencies(self.module_dependencies)
-            
+
             if cycles:
                 logger.warning(f"  Found {len(cycles)} circular dependencies:")
                 for i, cycle in enumerate(cycles, 1):
                     logger.warning(f"    Cycle {i}: {' -> '.join(cycle)}")
-                    
+
                     # Create CIRCULAR_DEPENDENCY relationships in the graph
                     for j in range(len(cycle) - 1):
                         self.ingestor.ensure_relationship_batch(
@@ -1412,10 +1412,10 @@ class GraphUpdater:
                         )
             else:
                 logger.info("  No circular dependencies detected")
-                
+
         except Exception as e:
             logger.error(f"Failed to detect circular dependencies: {e}")
-    
+
     def _analyze_security(self, file_path: Path, content: str, module_qn: str, language: str) -> None:
         """Analyze security vulnerabilities in the file."""
         try:
@@ -1423,16 +1423,16 @@ class GraphUpdater:
             if language not in self.parsers or language not in self.queries:
                 logger.warning(f"No parser available for {language}, skipping security analysis")
                 return
-                
+
             parser = self.parsers[language]
             queries = self.queries[language]
-            
+
             # Create security analyzer
             analyzer = SecurityAnalyzer(parser, queries, language)
-            
+
             # Analyze for vulnerabilities
             vulnerabilities = analyzer.analyze_file(str(file_path), content, module_qn)
-            
+
             # Create Vulnerability nodes and relationships
             for vuln in vulnerabilities:
                 # Create vulnerability node
@@ -1451,7 +1451,7 @@ class GraphUpdater:
                         "confidence": vuln.confidence
                     }
                 )
-                
+
                 # Link vulnerability to module
                 self.ingestor.ensure_relationship_batch(
                     ("Module", "qualified_name", module_qn),
@@ -1459,15 +1459,15 @@ class GraphUpdater:
                     ("Vulnerability", "id", vuln_id),
                     {"file_path": str(file_path)}
                 )
-                
+
             # Get data flows for taint analysis
             data_flows = []
             if hasattr(self, "_last_data_flows"):
                 data_flows = self._last_data_flows
-                
+
             # Analyze taint flows
             taint_flows = analyzer.analyze_taint_flow(str(file_path), content, data_flows)
-            
+
             # Create taint flow relationships
             for taint in taint_flows:
                 # Create TAINT_FLOW edges
@@ -1484,7 +1484,7 @@ class GraphUpdater:
                         "flow_length": len(taint.flow_path)
                     }
                 )
-                
+
                 # If unvalidated taint to dangerous sink, create high severity vulnerability
                 if not taint.is_validated and taint.sink_type in ["exec", "sql", "kernel"]:
                     vuln_id = f"{module_qn}:taint_flow:{taint.source_location[1]}_to_{taint.sink_location[1]}"
@@ -1502,20 +1502,20 @@ class GraphUpdater:
                             "confidence": 0.9
                         }
                     )
-                    
+
                     self.ingestor.ensure_relationship_batch(
                         ("Module", "qualified_name", module_qn),
                         "HAS_VULNERABILITY",
                         ("Vulnerability", "id", vuln_id),
                         {"file_path": str(file_path)}
                     )
-                    
+
             if vulnerabilities:
                 logger.info(f"  Found {len(vulnerabilities)} vulnerabilities in {file_path.name}")
-                    
+
         except Exception as e:
             logger.error(f"Failed to perform security analysis on {file_path}: {e}")
-    
+
     def _analyze_inheritance(self, file_path: Path, content: str, module_qn: str, language: str) -> None:
         """Analyze inheritance relationships in the file."""
         try:
@@ -1523,16 +1523,16 @@ class GraphUpdater:
             if language not in self.parsers or language not in self.queries:
                 logger.warning(f"No parser available for {language}, skipping inheritance analysis")
                 return
-                
+
             parser = self.parsers[language]
             queries = self.queries[language]
-            
+
             # Create inheritance analyzer
             analyzer = InheritanceAnalyzer(parser, queries, language)
-            
+
             # Analyze inheritance
             inheritance_info, method_overrides, class_info = analyzer.analyze_file(str(file_path), content, module_qn)
-            
+
             # Process inheritance relationships
             for inheritance in inheritance_info:
                 # Create INHERITS_FROM relationship
@@ -1547,7 +1547,7 @@ class GraphUpdater:
                         "confidence": inheritance.confidence
                     }
                 )
-                
+
                 # Create specific relationship types
                 if inheritance.inheritance_type == "implements":
                     self.ingestor.ensure_relationship_batch(
@@ -1563,7 +1563,7 @@ class GraphUpdater:
                         ("Class", "qualified_name", inheritance.parent_class),
                         {"line_number": inheritance.line_number}
                     )
-            
+
             # Process method overrides
             for override in method_overrides:
                 # Create OVERRIDES relationship
@@ -1578,7 +1578,7 @@ class GraphUpdater:
                         "is_abstract": override.is_abstract
                     }
                 )
-            
+
             # Update class nodes with additional metadata
             for class_data in class_info:
                 # Update the existing Class node with additional properties
@@ -1595,19 +1595,19 @@ class GraphUpdater:
                         "attribute_count": len(class_data.attributes) if class_data.attributes else 0
                     }
                 )
-            
+
             if inheritance_info or method_overrides:
                 logger.info(f"  Found {len(inheritance_info)} inheritance relationships and {len(method_overrides)} method overrides in {file_path.name}")
-                    
+
         except Exception as e:
             logger.error(f"Failed to perform inheritance analysis on {file_path}: {e}")
-    
+
     def _analyze_git_info(self, file_path: Path, module_qn: str) -> None:
         """Analyze Git information for a file."""
         try:
             # Get file history
             history = self.git_analyzer.get_file_history(str(file_path), max_commits=50)
-            
+
             if history:
                 # Update module with Git metadata
                 self.ingestor.ensure_node(
@@ -1620,10 +1620,9 @@ class GraphUpdater:
                         "contributor_count": len(history.contributors)
                     }
                 )
-                
+
                 # Create Commit nodes for recent commits
                 for commit_info in history.commits[:10]:  # Last 10 commits
-                    commit_id = f"commit_{commit_info.sha[:8]}"
                     self.ingestor.ensure_node(
                         "Commit",
                         {
@@ -1637,7 +1636,7 @@ class GraphUpdater:
                             "deletions": commit_info.deletions
                         }
                     )
-                    
+
                     # Link commit to module
                     self.ingestor.ensure_relationship_batch(
                         ("Commit", "sha", commit_info.sha),
@@ -1645,7 +1644,7 @@ class GraphUpdater:
                         ("Module", "qualified_name", module_qn),
                         {"date": commit_info.date.isoformat()}
                     )
-                
+
                 # Create Contributor nodes
                 for contributor, commit_count in history.contributors[:5]:  # Top 5 contributors
                     contributor_id = contributor.replace(" ", "_").replace("<", "").replace(">", "")
@@ -1657,7 +1656,7 @@ class GraphUpdater:
                             "email": contributor.split("<")[1].rstrip(">") if "<" in contributor else ""
                         }
                     )
-                    
+
                     # Link contributor to module
                     self.ingestor.ensure_relationship_batch(
                         ("Contributor", "id", contributor_id),
@@ -1665,19 +1664,19 @@ class GraphUpdater:
                         ("Module", "qualified_name", module_qn),
                         {"commit_count": commit_count}
                     )
-            
+
             # Get blame information for key functions/classes
             blame_info = self.git_analyzer.get_blame_info(str(file_path))
-            
+
             if blame_info:
                 # Store blame info for functions and classes
                 # This would require parsing the file to map line numbers to entities
                 # For now, just log the info
                 logger.debug(f"  Got blame info for {len(blame_info)} lines in {file_path.name}")
-                
+
         except Exception as e:
             logger.error(f"Failed to analyze Git info for {file_path}: {e}")
-    
+
     def _is_config_file(self, filepath: Path) -> bool:
         """Check if a file is a configuration file."""
         config_parser = ConfigParser()
@@ -1686,24 +1685,24 @@ class GraphUpdater:
             '.gitignore', '.dockerignore', 'requirements.txt', 'package.json', 'package-lock.json',
             'yarn.lock', 'Gemfile', 'Gemfile.lock', 'Cargo.toml', 'Cargo.lock', 'go.mod', 'go.sum'
         ]
-    
+
     def _parse_config_file(self, filepath: Path) -> None:
         """Parse and ingest configuration files."""
         logger.info(f"  Parsing configuration file: {filepath}")
-        
+
         try:
             # Create config parser
             config_parser = ConfigParser()
             config_file = config_parser.parse_file(filepath)
-            
+
             if not config_file:
                 logger.warning(f"    Failed to parse config file: {filepath}")
                 return
-            
+
             # Create ConfigFile node
             relative_path = filepath.relative_to(self.repo_path)
             config_qn = f"{self.project_name}.config.{relative_path.stem}"
-            
+
             self.ingestor.ensure_node_batch(
                 "ConfigFile",
                 {
@@ -1715,18 +1714,18 @@ class GraphUpdater:
                     "environment_list": ",".join(config_file.environments) if config_file.environments else ""
                 }
             )
-            
+
             # Link to project
             self.ingestor.ensure_relationship_batch(
                 ("Project", "name", self.project_name),
                 "HAS_CONFIG",
                 ("ConfigFile", "qualified_name", config_qn)
             )
-            
+
             # Create setting nodes for important settings
             for setting in config_file.settings[:100]:  # Limit to first 100 settings
                 setting_qn = f"{config_qn}.{setting.get_full_path()}"
-                
+
                 self.ingestor.ensure_node_batch(
                     "ConfigSetting",
                     {
@@ -1737,14 +1736,14 @@ class GraphUpdater:
                         "type": setting.setting_type
                     }
                 )
-                
+
                 # Link setting to config file
                 self.ingestor.ensure_relationship_batch(
                     ("ConfigFile", "qualified_name", config_qn),
                     "DEFINES_SETTING",
                     ("ConfigSetting", "qualified_name", setting_qn)
                 )
-            
+
             # Create dependency relationships
             for dep in config_file.dependencies:
                 # Check if it's an internal module reference
@@ -1763,7 +1762,7 @@ class GraphUpdater:
                         "DEPENDS_ON",
                         ("ExternalPackage", "name", dep)
                     )
-            
+
             # Special handling for specific file types
             if filepath.name == "package.json":
                 self._parse_package_json_specifics(config_file, config_qn)
@@ -1771,16 +1770,16 @@ class GraphUpdater:
                 self._parse_python_dependencies(config_file, config_qn)
             elif filepath.name == "Dockerfile":
                 self._parse_dockerfile_specifics(config_file, config_qn)
-            
+
             logger.info(f"    Successfully parsed {config_file.format} file with {len(config_file.settings)} settings")
-            
+
         except Exception as e:
             logger.error(f"    Error parsing config file {filepath}: {e}")
-    
+
     def _parse_package_json_specifics(self, config_file, config_qn: str) -> None:
         """Parse package.json specific information."""
         raw = config_file.raw_content
-        
+
         # Handle scripts
         if "scripts" in raw:
             for script_name, script_cmd in raw["scripts"].items():
@@ -1797,28 +1796,28 @@ class GraphUpdater:
                     "DEFINES_SCRIPT",
                     ("BuildScript", "name", script_name)
                 )
-    
+
     def _parse_python_dependencies(self, config_file, config_qn: str) -> None:
         """Parse Python dependency files."""
         # Dependencies are already handled in the general parsing
         # This is for any Python-specific handling
         pass
-    
+
     def _parse_dockerfile_specifics(self, config_file, config_qn: str) -> None:
         """Parse Dockerfile specific information."""
         # Could extract base images, exposed ports, etc.
         # For now, basic parsing is sufficient
         pass
-    
+
     def _analyze_repository_git_info(self) -> None:
         """Analyze repository-level Git information."""
         try:
             logger.info("--- Analyzing Repository Git Information ---")
-            
+
             # Get recent commits
             recent_commits = self.git_analyzer.get_recent_commits(max_commits=100)
             logger.info(f"  Found {len(recent_commits)} recent commits")
-            
+
             # Create repository node with Git metadata
             if recent_commits:
                 self.ingestor.ensure_node(
@@ -1831,11 +1830,11 @@ class GraphUpdater:
                         "first_commit_date": recent_commits[-1].date.isoformat() if recent_commits else ""
                     }
                 )
-            
+
             # Get all contributors
             contributors = self.git_analyzer.get_contributors()
             logger.info(f"  Found {len(contributors)} contributors")
-            
+
             # Create top contributors
             for contributor, commit_count in contributors[:20]:  # Top 20 contributors
                 contributor_id = contributor.replace(" ", "_").replace("<", "").replace(">", "")
@@ -1848,7 +1847,7 @@ class GraphUpdater:
                         "total_commits": commit_count
                     }
                 )
-                
+
                 # Link contributor to repository
                 self.ingestor.ensure_relationship_batch(
                     ("Contributor", "id", contributor_id),
@@ -1856,8 +1855,8 @@ class GraphUpdater:
                     ("Repository", "name", self.project_name),
                     {"commit_count": commit_count}
                 )
-            
+
             logger.info("  Repository Git analysis complete")
-            
+
         except Exception as e:
             logger.error(f"Failed to analyze repository Git info: {e}")

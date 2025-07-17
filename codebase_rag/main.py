@@ -430,7 +430,7 @@ def start(
                 console.print("[bold yellow]Cleaning database...[/bold yellow]")
                 ingestor.clean_database()
             ingestor.ensure_constraints()
-            
+
             # Create indexes for better query performance
             from .graph_indexing import GraphIndexManager
             index_manager = GraphIndexManager(ingestor)
@@ -443,29 +443,29 @@ def start(
             if parallel:
                 from .parallel_processor import ParallelProcessor
                 from .progress_reporter import ProgressReporter
-                
+
                 console.print(f"[bold cyan]Using parallel processing with {workers or 'auto'} workers[/bold cyan]")
-                
+
                 processor = ParallelProcessor(
-                    ingestor, repo_to_update, parsers, queries, 
+                    ingestor, repo_to_update, parsers, queries,
                     max_workers=workers
                 )
-                
+
                 # Collect files with filters
                 files = processor.collect_files(
                     folder_filter=folder_filter,
                     file_pattern=file_pattern,
                     skip_tests=skip_tests
                 )
-                
+
                 if not files:
                     console.print("[bold yellow]No files found matching criteria[/bold yellow]")
                     return
-                
+
                 # Process files in parallel with progress reporting
                 reporter = ProgressReporter(len(files), show_eta=True, show_rate=True)
                 reporter.start()
-                
+
                 try:
                     processor.process_files_parallel(files)
                 finally:

@@ -1,12 +1,13 @@
 """Unified test parser for multiple languages and frameworks."""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
-from tree_sitter import Node, Parser
-from loguru import logger
+from typing import Any
 
+from loguru import logger
+from tree_sitter import Node, Parser
+
+from .bdd_parser import BDDFeature, BDDParser
 from .test_detector import TestDetector, TestFrameworkInfo
-from .bdd_parser import BDDParser, BDDFeature, BDDStep
 
 
 @dataclass
@@ -17,34 +18,34 @@ class TestNode:
     file_path: str
     start_line: int
     end_line: int
-    properties: Dict[str, Any] = field(default_factory=dict)
-    relationships: List[Tuple[str, str, str]] = field(default_factory=list)  # (rel_type, target_type, target_name)
+    properties: dict[str, Any] = field(default_factory=dict)
+    relationships: list[tuple[str, str, str]] = field(default_factory=list)  # (rel_type, target_type, target_name)
 
 
 class TestParser:
     """Parse test files and extract test-related nodes and relationships."""
-    
-    def __init__(self, parser: Parser, queries: Dict[str, Any], language: str):
+
+    def __init__(self, parser: Parser, queries: dict[str, Any], language: str):
         self.parser = parser
         self.queries = queries
         self.language = language
         self.test_detector = TestDetector()
         self.bdd_parser = BDDParser()
-        self.nodes: List[TestNode] = []
-        self.relationships: List[Tuple[str, str, str, str]] = []  # (source, rel_type, target_type, target)
-        
-    def parse_test_file(self, file_path: str, content: str) -> Tuple[List[TestNode], List[Tuple[str, str, str, str]]]:
+        self.nodes: list[TestNode] = []
+        self.relationships: list[tuple[str, str, str, str]] = []  # (source, rel_type, target_type, target)
+
+    def parse_test_file(self, file_path: str, content: str) -> tuple[list[TestNode], list[tuple[str, str, str, str]]]:
         """Parse a test file and extract test nodes and relationships."""
         self.nodes = []
         self.relationships = []
         self.current_file = file_path
-        
+
         # Detect test framework
         framework_info = self.test_detector.detect_framework(content, self.language, file_path)
         if not framework_info:
             logger.warning(f"Could not detect test framework for {file_path}")
             return self.nodes, self.relationships
-            
+
         # Parse based on framework
         if framework_info.framework in ["pytest", "unittest"]:
             self._parse_python_tests(content, framework_info)
@@ -58,20 +59,20 @@ class TestParser:
             self._parse_rust_tests(content, framework_info)
         elif framework_info.framework in ["testing", "ginkgo"]:
             self._parse_go_tests(content, framework_info)
-            
+
         # Extract assertions
         assertions = self.test_detector.extract_assertions(content, framework_info)
         self._create_assertion_relationships(assertions)
-        
+
         return self.nodes, self.relationships
-        
-    def parse_bdd_file(self, file_path: str, content: str) -> Tuple[List[TestNode], List[Tuple[str, str, str, str]]]:
+
+    def parse_bdd_file(self, file_path: str, content: str) -> tuple[list[TestNode], list[tuple[str, str, str, str]]]:
         """Parse a BDD feature file."""
         self.nodes = []
         self.relationships = []
-        
+
         feature = self.bdd_parser.parse_feature_file(file_path, content)
-        
+
         # Create feature node
         feature_node = TestNode(
             node_type="bdd_feature",
@@ -85,7 +86,7 @@ class TestParser:
             }
         )
         self.nodes.append(feature_node)
-        
+
         # Create scenario nodes
         for scenario in feature.scenarios:
             scenario_node = TestNode(
@@ -101,25 +102,25 @@ class TestParser:
                 }
             )
             self.nodes.append(scenario_node)
-            
+
             # Feature contains scenario
             self.relationships.append(
                 (feature.name, "CONTAINS_SCENARIO", "bdd_scenario", scenario.name)
             )
-            
+
             # Create step relationships
             for step in scenario.steps:
                 self.relationships.append(
                     (scenario.name, "HAS_STEP", "bdd_step", f"{step.keyword} {step.text}")
                 )
-                
+
         return self.nodes, self.relationships
-        
-    def link_bdd_to_code(self, step_definitions: List[Tuple[str, str, str]], 
-                         feature: BDDFeature) -> List[Tuple[str, str, str, str]]:
+
+    def link_bdd_to_code(self, step_definitions: list[tuple[str, str, str]],
+                         feature: BDDFeature) -> list[tuple[str, str, str, str]]:
         """Link BDD steps to their code implementations."""
         links = []
-        
+
         for scenario in feature.scenarios:
             for step in scenario.steps:
                 function_name = self.bdd_parser.match_step_to_definition(step, step_definitions)
@@ -127,13 +128,13 @@ class TestParser:
                     links.append(
                         (f"{step.keyword} {step.text}", "IMPLEMENTS_STEP", "function", function_name)
                     )
-                    
+
         return links
-        
+
     def _parse_python_tests(self, content: str, framework_info: TestFrameworkInfo) -> None:
         """Parse Python test files (pytest/unittest)."""
         tree = self.parser.parse(bytes(content, "utf8"))
-        
+
         # Find test classes
         class_query = self.queries.get("classes")
         if class_query:
@@ -152,10 +153,10 @@ class TestParser:
                         }
                     )
                     self.nodes.append(test_suite)
-                    
+
                     # Find test methods in the class
                     self._extract_test_methods(class_node, class_name, framework_info)
-                    
+
         # Find standalone test functions
         function_query = self.queries.get("functions")
         if function_query:
@@ -174,18 +175,18 @@ class TestParser:
                         }
                     )
                     self.nodes.append(test_func)
-                    
+
     def _parse_javascript_tests(self, content: str, framework_info: TestFrameworkInfo) -> None:
         """Parse JavaScript test files (Jest/Mocha)."""
         tree = self.parser.parse(bytes(content, "utf8"))
-        
+
         # Find describe blocks and test/it calls
         self._walk_js_test_tree(tree.root_node, content, framework_info)
-        
+
     def _parse_c_tests(self, content: str, framework_info: TestFrameworkInfo) -> None:
         """Parse C test files."""
         tree = self.parser.parse(bytes(content, "utf8"))
-        
+
         # Find test functions
         function_query = self.queries.get("functions")
         if function_query:
@@ -204,7 +205,7 @@ class TestParser:
                         }
                     )
                     self.nodes.append(test_func)
-                    
+
     def _extract_test_methods(self, class_node: Node, class_name: str, framework_info: TestFrameworkInfo) -> None:
         """Extract test methods from a test class."""
         # Walk through class body to find methods
@@ -226,19 +227,19 @@ class TestParser:
                                 }
                             )
                             self.nodes.append(test_case)
-                            
+
                             # Create relationship
                             self.relationships.append(
                                 (class_name, "CONTAINS_TEST", "test_case", method_name)
                             )
-                            
-    def _walk_js_test_tree(self, node: Node, content: str, framework_info: TestFrameworkInfo, parent_suite: Optional[str] = None) -> None:
+
+    def _walk_js_test_tree(self, node: Node, content: str, framework_info: TestFrameworkInfo, parent_suite: str | None = None) -> None:
         """Walk JavaScript AST to find test constructs."""
         if node.type == "call_expression":
             function_node = node.child_by_field_name("function")
             if function_node and function_node.type == "identifier":
                 func_name = function_node.text.decode("utf-8")
-                
+
                 # Check for describe blocks
                 if func_name == "describe":
                     args = node.child_by_field_name("arguments")
@@ -247,7 +248,7 @@ class TestParser:
                         name_arg = args.named_children[0]
                         if name_arg.type == "string":
                             suite_name = name_arg.text.decode("utf-8").strip('"\'')
-                            
+
                             test_suite = TestNode(
                                 node_type="test_suite",
                                 name=suite_name,
@@ -259,17 +260,17 @@ class TestParser:
                                 }
                             )
                             self.nodes.append(test_suite)
-                            
+
                             if parent_suite:
                                 self.relationships.append(
                                     (parent_suite, "CONTAINS_SUITE", "test_suite", suite_name)
                                 )
-                                
+
                             # Process callback for nested tests
                             if len(args.named_children) > 1:
                                 callback = args.named_children[1]
                                 self._walk_js_test_tree(callback, content, framework_info, suite_name)
-                                
+
                 # Check for test/it blocks
                 elif func_name in ["test", "it"]:
                     args = node.child_by_field_name("arguments")
@@ -278,7 +279,7 @@ class TestParser:
                         name_arg = args.named_children[0]
                         if name_arg.type == "string":
                             test_name = name_arg.text.decode("utf-8").strip('"\'')
-                            
+
                             test_case = TestNode(
                                 node_type="test_case",
                                 name=test_name,
@@ -290,17 +291,17 @@ class TestParser:
                                 }
                             )
                             self.nodes.append(test_case)
-                            
+
                             if parent_suite:
                                 self.relationships.append(
                                     (parent_suite, "CONTAINS_TEST", "test_case", test_name)
                                 )
-                                
+
         # Recurse to children
         for child in node.named_children:
             self._walk_js_test_tree(child, content, framework_info, parent_suite)
-            
-    def _create_assertion_relationships(self, assertions: List[Tuple[int, str]]) -> None:
+
+    def _create_assertion_relationships(self, assertions: list[tuple[int, str]]) -> None:
         """Create relationships for assertions to their containing tests."""
         # Find which test each assertion belongs to
         for line_num, assertion_text in assertions:
@@ -312,14 +313,14 @@ class TestParser:
                             (node.name, "ASSERTS", "assertion", assertion_text[:50])  # Truncate long assertions
                         )
                         break
-                        
-    def _get_node_name(self, node: Node) -> Optional[str]:
+
+    def _get_node_name(self, node: Node) -> str | None:
         """Extract name from various node types."""
         # Try standard name field first
         name_node = node.child_by_field_name("name")
         if name_node:
             return name_node.text.decode("utf-8")
-            
+
         # For C functions, the name is in the declarator
         if self.language == "c" and node.type == "function_definition":
             declarator = node.child_by_field_name("declarator")
@@ -336,27 +337,27 @@ class TestParser:
                         ident = func_decl.child(0)
                         if ident and ident.type == "identifier":
                             return ident.text.decode("utf-8")
-            
+
         # For some languages, the identifier might be elsewhere
         for child in node.named_children:
             if child.type == "identifier":
                 return child.text.decode("utf-8")
-                
+
         return None
-        
+
     def _parse_java_tests(self, content: str, framework_info: TestFrameworkInfo) -> None:
         """Parse Java test files (JUnit/TestNG)."""
-        tree = self.parser.parse(bytes(content, "utf8"))
-        
+        self.parser.parse(bytes(content, "utf8"))
+
         # Similar to Python but look for @Test annotations
         # This would need Java-specific parsing logic
         pass
-        
+
     def _parse_rust_tests(self, content: str, framework_info: TestFrameworkInfo) -> None:
         """Parse Rust test files."""
         # Look for #[test] attributes
         pass
-        
+
     def _parse_go_tests(self, content: str, framework_info: TestFrameworkInfo) -> None:
         """Parse Go test files."""
         # Look for Test* functions
