@@ -158,10 +158,14 @@ class TestCodeAnalyzer:
                 code_map[node.name.lower()] = node
 
                 # For methods, also store by method name alone
-                if hasattr(node, "node_type") and node.node_type == "method" and "." in node.name:
-                        method_name = node.name.split(".")[-1]
-                        code_map[method_name] = node
-                        code_map[method_name.lower()] = node
+                if (
+                    hasattr(node, "node_type")
+                    and node.node_type == "method"
+                    and "." in node.name
+                ):
+                    method_name = node.name.split(".")[-1]
+                    code_map[method_name] = node
+                    code_map[method_name.lower()] = node
 
         return code_map
 
@@ -253,17 +257,20 @@ class TestCodeAnalyzer:
         for imp in imports:
             # Check if any code node's file path matches the import
             for code_node in code_map.values():
-                if hasattr(code_node, "file_path") and imp.replace(".", "/") in code_node.file_path:
-                        matches.append(
-                            TestCodeLink(
-                                test_name=test_node.name,
-                                test_type=test_node.node_type,
-                                tested_function=code_node.name,
-                                tested_type=getattr(code_node, "node_type", "function"),
-                                confidence=0.6,
-                                reason=f"Import path match: {imp}",
-                            )
+                if (
+                    hasattr(code_node, "file_path")
+                    and imp.replace(".", "/") in code_node.file_path
+                ):
+                    matches.append(
+                        TestCodeLink(
+                            test_name=test_node.name,
+                            test_type=test_node.node_type,
+                            tested_function=code_node.name,
+                            tested_type=getattr(code_node, "node_type", "function"),
+                            confidence=0.6,
+                            reason=f"Import path match: {imp}",
                         )
+                    )
 
         return matches
 

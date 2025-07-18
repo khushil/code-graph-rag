@@ -6,8 +6,18 @@ from .inheritance import ClassInfo, InheritanceAnalyzer, InheritanceInfo, Method
 from .security import SecurityAnalyzer, TaintFlow, Vulnerability
 
 __all__ = [
-    "DataFlowAnalyzer", "VariableNode", "FlowEdge",
-    "DependencyAnalyzer", "Export", "Import", "DependencyInfo",
-    "SecurityAnalyzer", "Vulnerability", "TaintFlow",
-    "InheritanceAnalyzer", "InheritanceInfo", "MethodOverride", "ClassInfo"
+    "ClassInfo",
+    "DataFlowAnalyzer",
+    "DependencyAnalyzer",
+    "DependencyInfo",
+    "Export",
+    "FlowEdge",
+    "Import",
+    "InheritanceAnalyzer",
+    "InheritanceInfo",
+    "MethodOverride",
+    "SecurityAnalyzer",
+    "TaintFlow",
+    "VariableNode",
+    "Vulnerability",
 ]
