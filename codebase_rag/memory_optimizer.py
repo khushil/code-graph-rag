@@ -7,6 +7,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import psutil
 from loguru import logger
@@ -15,6 +16,7 @@ from loguru import logger
 @dataclass
 class MemoryStats:
     """Memory usage statistics."""
+
     total_memory: int
     available_memory: int
     used_memory: int
@@ -33,7 +35,7 @@ class MemoryStats:
             available_memory=memory.available,
             used_memory=memory.used,
             percent_used=memory.percent,
-            process_memory=process_mem
+            process_memory=process_mem,
         )
 
     def log_stats(self, context: str = "") -> None:
@@ -54,26 +56,28 @@ class StreamingFileReader:
 
     def read_file_chunks(self, file_path: Path) -> Generator[bytes, None, None]:
         """Read file in chunks."""
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             while True:
                 chunk = f.read(self.chunk_size)
                 if not chunk:
                     break
                 yield chunk
 
-    def read_file_lines(self, file_path: Path, encoding: str = 'utf-8') -> Generator[str, None, None]:
+    def read_file_lines(
+        self, file_path: Path, encoding: str = "utf-8"
+    ) -> Generator[str, None, None]:
         """Read file line by line."""
         with open(file_path, encoding=encoding) as f:
             for line in f:
-                yield line.rstrip('\n\r')
+                yield line.rstrip("\n\r")
 
     @contextmanager
     def mmap_file(self, file_path: Path):
         """Memory-map a file for efficient random access."""
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             # Empty files cannot be mmap'd
             if os.path.getsize(file_path) == 0:
-                yield b''
+                yield b""
                 return
 
             with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mmapped:
@@ -83,9 +87,11 @@ class StreamingFileReader:
 class MemoryOptimizedParser:
     """Parser that optimizes memory usage for large files."""
 
-    def __init__(self,
-                 max_file_size: int = 10 * 1024 * 1024,  # 10MB
-                 gc_threshold: float = 80.0):  # Trigger GC at 80% memory
+    def __init__(
+        self,
+        max_file_size: int = 10 * 1024 * 1024,  # 10MB
+        gc_threshold: float = 80.0,
+    ):  # Trigger GC at 80% memory
         self.max_file_size = max_file_size
         self.gc_threshold = gc_threshold
         self.reader = StreamingFileReader()
@@ -99,7 +105,9 @@ class MemoryOptimizedParser:
         except OSError:
             return False
 
-    def parse_file_optimized(self, file_path: Path, parser, language: str) -> tuple[any | None, str | None]:
+    def parse_file_optimized(
+        self, file_path: Path, parser, language: str
+    ) -> tuple[Any | None, str | None]:
         """Parse file with memory optimization."""
         stats_before = MemoryStats.current()
         stats_before.log_stats(f"before parsing {file_path.name}")
@@ -107,7 +115,9 @@ class MemoryOptimizedParser:
         try:
             if self.should_use_streaming(file_path):
                 # For very large files, use memory mapping
-                logger.info(f"Using memory-mapped parsing for large file: {file_path.name}")
+                logger.info(
+                    f"Using memory-mapped parsing for large file: {file_path.name}"
+                )
                 with self.reader.mmap_file(file_path) as mmapped_content:
                     tree = parser.parse(mmapped_content)
                     root_node = tree.root_node
@@ -144,7 +154,9 @@ class MemoryOptimizedParser:
         stats = MemoryStats.current()
 
         if stats.percent_used > self.gc_threshold:
-            logger.info(f"Memory usage high ({stats.percent_used:.1f}%), triggering garbage collection")
+            logger.info(
+                f"Memory usage high ({stats.percent_used:.1f}%), triggering garbage collection"
+            )
             gc.collect()
 
             # Log the effect of GC
@@ -201,6 +213,27 @@ def memory_guard(max_memory_mb: int = 1024):
             logger.warning(
                 f"Significant memory increase: {memory_increase:.1f}MB "
                 f"(from {initial_memory:.1f}MB to {final_memory:.1f}MB)"
+            )
+
+
+@contextmanager
+def memory_monitor(context: str = ""):
+    """Monitor memory usage during an operation."""
+    stats_before = MemoryStats.current()
+    stats_before.log_stats(f"before {context}")
+
+    try:
+        yield
+    finally:
+        stats_after = MemoryStats.current()
+        stats_after.log_stats(f"after {context}")
+
+        # Calculate memory increase
+        memory_increase = stats_after.process_memory - stats_before.process_memory
+        if memory_increase > 50 * 1024 * 1024:  # More than 50MB
+            logger.warning(
+                f"Significant memory increase during {context}: "
+                f"{memory_increase / 1024 / 1024:.1f}MB"
             )
 
 

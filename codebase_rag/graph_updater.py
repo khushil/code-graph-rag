@@ -20,6 +20,7 @@ from .parsers.c_parser import CParser
 from .parsers.config_parser import ConfigParser
 from .parsers.test_detector import TestDetector
 from .parsers.test_parser import TestParser
+from .processing import FileTask, ParallelProcessor, ThreadSafeIngestor
 from .version_control.git_analyzer import GitAnalyzer
 
 
@@ -32,6 +33,11 @@ class GraphUpdater:
         repo_path: Path,
         parsers: dict[str, Parser],
         queries: dict[str, Any],
+        parallel: bool = False,
+        num_workers: int | None = None,
+        folder_filter: str | None = None,
+        file_pattern: str | None = None,
+        skip_tests: bool = False,
     ):
         self.ingestor = ingestor
         self.repo_path = repo_path
@@ -46,6 +52,13 @@ class GraphUpdater:
             set
         )  # Track module dependencies
         self.module_exports: dict[str, list] = defaultdict(list)  # Track module exports
+
+        # Parallel processing configuration
+        self.parallel = parallel
+        self.num_workers = num_workers
+        self.folder_filter = folder_filter
+        self.file_pattern = file_pattern
+        self.skip_tests = skip_tests
 
         # Initialize Git analyzer if repo is a git repository
         self.git_analyzer = None
@@ -77,10 +90,16 @@ class GraphUpdater:
         logger.info("--- Pass 1: Identifying Packages and Folders ---")
         self._identify_structure()
 
-        logger.info(
-            "\n--- Pass 2: Processing Files, Caching ASTs, and Collecting Definitions ---"
-        )
-        self._process_files()
+        if self.parallel:
+            logger.info(
+                f"\n--- Pass 2: Processing Files in Parallel ({self.num_workers or 'auto'} workers) ---"
+            )
+            self._process_files_parallel()
+        else:
+            logger.info(
+                "\n--- Pass 2: Processing Files, Caching ASTs, and Collecting Definitions ---"
+            )
+            self._process_files()
 
         logger.info(
             f"\n--- Found {len(self.function_registry)} functions/methods in codebase ---"
@@ -2089,3 +2108,129 @@ class GraphUpdater:
 
         except Exception as e:
             logger.error(f"Failed to analyze test-code relationships: {e}")
+
+    def _process_files_parallel(self) -> None:
+        """Process files in parallel for improved performance."""
+        # Collect all file tasks first
+        file_tasks = []
+
+        for root_str, dirs, files in os.walk(self.repo_path, topdown=True):
+            dirs[:] = [d for d in dirs if d not in self.ignore_dirs]
+            root = Path(root_str)
+            relative_root = root.relative_to(self.repo_path)
+
+            # Apply folder filter if specified
+            if self.folder_filter:
+                relative_path_str = str(relative_root)
+                if not relative_path_str.startswith(self.folder_filter):
+                    continue
+
+            parent_container_qn = self.structural_elements.get(relative_root)
+            parent_label, parent_key, parent_val = (
+                ("Package", "qualified_name", parent_container_qn)
+                if parent_container_qn
+                else (
+                    ("Folder", "path", str(relative_root))
+                    if relative_root != Path()
+                    else ("Project", "name", self.project_name)
+                )
+            )
+
+            for file_name in files:
+                filepath = root / file_name
+
+                # Apply file pattern filter if specified
+                if self.file_pattern:
+                    import fnmatch
+
+                    if not fnmatch.fnmatch(file_name, self.file_pattern):
+                        continue
+
+                # Skip test files if requested
+                if self.skip_tests:
+                    test_patterns = ["test_", "_test.py", ".test.", ".spec."]
+                    if any(pattern in file_name.lower() for pattern in test_patterns):
+                        continue
+
+                relative_filepath = str(filepath.relative_to(self.repo_path))
+
+                # Create generic File node for all files
+                self.ingestor.ensure_node_batch(
+                    "File",
+                    {
+                        "path": relative_filepath,
+                        "name": file_name,
+                        "extension": filepath.suffix,
+                    },
+                )
+                self.ingestor.ensure_relationship_batch(
+                    (parent_label, parent_key, parent_val),
+                    "CONTAINS_FILE",
+                    ("File", "path", relative_filepath),
+                )
+
+                # Check if this file type is supported for parsing
+                lang_config = get_language_config(filepath.suffix)
+                if lang_config and lang_config.name in self.parsers:
+                    task = FileTask(
+                        filepath=filepath,
+                        relative_filepath=relative_filepath,
+                        parent_label=parent_label,
+                        parent_key=parent_key,
+                        parent_val=parent_val,
+                        language_config=lang_config,
+                    )
+                    file_tasks.append(task)
+
+        if not file_tasks:
+            logger.warning("No files found to process")
+            return
+
+        logger.info(f"Found {len(file_tasks)} files to process")
+
+        # Create thread-safe ingestor wrapper
+        thread_safe_ingestor = ThreadSafeIngestor(self.ingestor)
+
+        # Create parallel processor
+        processor = ParallelProcessor(
+            repo_path=self.repo_path,
+            parsers=self.parsers,
+            queries=self.queries,
+            project_name=self.project_name,
+            num_workers=self.num_workers,
+        )
+
+        # Process files in parallel
+        results, elapsed_time = processor.process_files_parallel(file_tasks)
+
+        # Process results
+        logger.info("Processing results and updating graph...")
+        for result in results:
+            if result.error:
+                logger.error(f"Error processing {result.filepath}: {result.error}")
+                continue
+
+            # Add nodes and relationships to graph
+            thread_safe_ingestor.add_nodes(result.nodes)
+            thread_safe_ingestor.add_relationships(result.relationships)
+
+            # Update internal registries
+            self.function_registry.update(result.functions)
+            for simple_name, qnames in result.simple_names.items():
+                self.simple_name_lookup[simple_name].update(qnames)
+
+            # Cache AST data
+            if result.ast_data:
+                self.ast_cache[result.filepath] = result.ast_data
+
+            # Track module dependencies and exports
+            if result.module_qn:
+                self.module_dependencies[result.module_qn].update(result.dependencies)
+                self.module_exports[result.module_qn].extend(result.exports)
+
+        # Flush all buffered data
+        thread_safe_ingestor.flush_all()
+
+        logger.info(
+            f"Parallel processing complete: {len(results)} files in {elapsed_time:.2f}s"
+        )
