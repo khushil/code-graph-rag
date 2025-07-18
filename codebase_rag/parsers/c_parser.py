@@ -66,19 +66,44 @@ class CParser:
         # Add pointer relationships
         self.relationships.extend(pointer_relationships)
 
+        # Add regular pointer nodes
+        for ptr_name, ptr_info in pointer_info.items():
+            if not ptr_info.is_function_pointer:
+                self.nodes.append(
+                    CNode(
+                        node_type="pointer",
+                        name=ptr_name,
+                        file_path=file_path,
+                        start_line=ptr_info.location[0],
+                        end_line=ptr_info.location[0],
+                        properties={
+                            "base_type": ptr_info.base_type,
+                            "indirection_level": ptr_info.indirection_level,
+                            "points_to": ptr_info.points_to,
+                            "is_const": ptr_info.is_const,
+                        },
+                    )
+                )
+
         # Add function pointer nodes
         for fp_name, fp_info in pointer_analyzer.function_pointers.items():
+            # Get location from pointer_info if available
+            location = (0, 0)
+            if fp_name in pointer_info:
+                location = pointer_info[fp_name].location
+            
             self.nodes.append(
                 CNode(
                     node_type="function_pointer",
                     name=fp_name,
                     file_path=file_path,
-                    start_line=0,  # Would need to track from declarator
-                    end_line=0,
+                    start_line=location[0],
+                    end_line=location[0],
                     properties={
                         "return_type": fp_info.return_type,
                         "param_types": fp_info.param_types,
                         "assigned_functions": fp_info.assigned_functions,
+                        "invocation_count": len(fp_info.invocation_sites),
                     },
                 )
             )
@@ -360,6 +385,10 @@ class CParser:
                 # Extract variable name and type
                 declarator = self._find_declarator(node)
                 if declarator:
+                    # Skip function pointers - they're handled separately
+                    if self._is_function_pointer_declarator(declarator):
+                        return
+                    
                     name = self._get_identifier_text(declarator, content)
                     var_type = self._get_variable_type(node, content)
 
@@ -683,6 +712,30 @@ class CParser:
                     return False
 
                 return has_function_declarator(cursor)
+        return False
+    
+    def _is_function_pointer_declarator(self, declarator: Node) -> bool:
+        """Check if a declarator is a function pointer."""
+        current = declarator
+        
+        # Navigate through pointer declarators
+        while current and current.type == "pointer_declarator":
+            current = current.child_by_field_name("declarator")
+        
+        # Check if we end up with a function declarator
+        if current and current.type == "function_declarator":
+            return True
+            
+        # Also check for parenthesized declarators containing function declarators
+        if current and current.type == "parenthesized_declarator":
+            for child in current.children:
+                if child.type == "pointer_declarator":
+                    inner = child.child_by_field_name("declarator")
+                    while inner and inner.type == "pointer_declarator":
+                        inner = inner.child_by_field_name("declarator")
+                    if inner and inner.type == "function_declarator":
+                        return True
+                    
         return False
 
     def _is_static_declaration(self, node: Node, content: str) -> bool:
