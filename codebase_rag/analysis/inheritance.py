@@ -217,7 +217,7 @@ class InheritanceAnalyzer:
                         info.is_mixin = True
 
                 # Check class name for mixin pattern
-                if class_name.endswith("Mixin") or class_name.endswith("MixIn"):
+                if class_name.endswith(("Mixin", "MixIn")):
                     info.is_mixin = True
 
                 # Extract base classes
@@ -597,11 +597,7 @@ class InheritanceAnalyzer:
             return True
 
         # Check prefixes
-        for pattern in override_patterns:
-            if method_name.startswith(pattern):
-                return True
-
-        return False
+        return any(method_name.startswith(pattern) for pattern in override_patterns)
 
     def _has_super_call(self, method_node: Node) -> bool:
         """Check if a method contains a super() call."""
@@ -649,3 +645,191 @@ class InheritanceAnalyzer:
             lines.append(self._source_lines[i])
         lines.append(self._source_lines[end_line][:end_col])
         return "\n".join(lines)
+
+    def build_inheritance_graph(
+        self,
+        inheritance_info: list[InheritanceInfo],
+        method_overrides: list[MethodOverride],
+        class_info: list[ClassInfo],
+    ) -> tuple[list[dict], list[dict]]:
+        """Build graph nodes and relationships for inheritance analysis."""
+        nodes = []
+        relationships = []
+
+        # Create INHERITS_FROM relationships
+        for inheritance in inheritance_info:
+            inherits_rel = {
+                "start_label": "Class",
+                "start_key": "qualified_name",
+                "start_value": inheritance.child_class,
+                "rel_type": "INHERITS_FROM",
+                "end_label": "Class",
+                "end_key": "qualified_name",
+                "end_value": inheritance.parent_class,
+                "properties": {
+                    "inheritance_type": inheritance.inheritance_type,
+                    "line_number": inheritance.line_number,
+                    "is_resolved": inheritance.is_resolved,
+                    "confidence": inheritance.confidence,
+                },
+            }
+            relationships.append(inherits_rel)
+
+            # Create IMPLEMENTS relationship for interfaces
+            if inheritance.inheritance_type == "implements":
+                implements_rel = {
+                    "start_label": "Class",
+                    "start_key": "qualified_name",
+                    "start_value": inheritance.child_class,
+                    "rel_type": "IMPLEMENTS",
+                    "end_label": "Interface",
+                    "end_key": "qualified_name",
+                    "end_value": inheritance.parent_class,
+                    "properties": {
+                        "line_number": inheritance.line_number,
+                    },
+                }
+                relationships.append(implements_rel)
+
+        # Create OVERRIDES relationships for method overrides
+        for override in method_overrides:
+            override_rel = {
+                "start_label": "Method",
+                "start_key": "qualified_name",
+                "start_value": override.child_method,
+                "rel_type": "OVERRIDES",
+                "end_label": "Method",
+                "end_key": "qualified_name",
+                "end_value": override.parent_method,
+                "properties": {
+                    "override_type": override.override_type,
+                    "line_number": override.line_number,
+                    "has_super_call": override.has_super_call,
+                    "is_abstract": override.is_abstract,
+                },
+            }
+            relationships.append(override_rel)
+
+        # Update Class nodes with inheritance metadata
+        for info in class_info:
+            # Find or create class node properties
+            class_props = {
+                "is_abstract": info.is_abstract,
+                "is_interface": info.is_interface,
+                "is_mixin": info.is_mixin,
+                "method_count": len(info.methods) if info.methods else 0,
+                "attribute_count": len(info.attributes) if info.attributes else 0,
+            }
+
+            if info.metaclass:
+                class_props["metaclass"] = info.metaclass
+
+            if info.decorators:
+                class_props["decorators"] = ";".join(info.decorators)
+
+            # Create an enhanced Class node with metadata
+            enhanced_node = {
+                "label": "Class",
+                "key": "qualified_name",
+                "value": info.qualified_name,
+                "properties": class_props,
+            }
+            nodes.append(enhanced_node)
+
+        return nodes, relationships
+
+    def generate_inheritance_report(
+        self,
+        inheritance_info: list[InheritanceInfo],
+        method_overrides: list[MethodOverride],
+        class_info: list[ClassInfo],
+    ) -> dict:
+        """Generate a comprehensive inheritance analysis report."""
+        report = {
+            "total_classes": len(class_info),
+            "abstract_classes": sum(1 for c in class_info if c.is_abstract),
+            "interfaces": sum(1 for c in class_info if c.is_interface),
+            "mixins": sum(1 for c in class_info if c.is_mixin),
+            "inheritance_relationships": len(inheritance_info),
+            "method_overrides": len(method_overrides),
+            "inheritance_depth": {},
+            "multiple_inheritance": [],
+            "unresolved_parents": [],
+            "abstract_implementations": [],
+            "override_statistics": {
+                "with_super_call": sum(1 for o in method_overrides if o.has_super_call),
+                "without_super_call": sum(
+                    1 for o in method_overrides if not o.has_super_call
+                ),
+                "abstract_implementations": sum(
+                    1
+                    for o in method_overrides
+                    if o.override_type == "abstract_implementation"
+                ),
+            },
+        }
+
+        # Calculate inheritance depths
+        child_to_parents = {}
+        for inheritance in inheritance_info:
+            if inheritance.child_class not in child_to_parents:
+                child_to_parents[inheritance.child_class] = []
+            child_to_parents[inheritance.child_class].append(inheritance.parent_class)
+
+        # Find classes with multiple inheritance
+        for child, parents in child_to_parents.items():
+            if len(parents) > 1:
+                report["multiple_inheritance"].append(
+                    {
+                        "class": child,
+                        "parents": parents,
+                        "parent_count": len(parents),
+                    }
+                )
+
+        # Find unresolved parent classes
+        for inheritance in inheritance_info:
+            if not inheritance.is_resolved:
+                report["unresolved_parents"].append(
+                    {
+                        "child": inheritance.child_class,
+                        "parent": inheritance.parent_class,
+                        "type": inheritance.inheritance_type,
+                    }
+                )
+
+        # Find abstract method implementations
+        for override in method_overrides:
+            if override.override_type == "abstract_implementation":
+                report["abstract_implementations"].append(
+                    {
+                        "method": override.child_method,
+                        "abstract_method": override.parent_method,
+                    }
+                )
+
+        # Calculate inheritance depth distribution
+        def calculate_depth(class_name: str, visited: set | None = None) -> int:
+            if visited is None:
+                visited = set()
+            if class_name in visited:
+                return 0  # Circular inheritance
+            visited.add(class_name)
+
+            if class_name not in child_to_parents:
+                return 0
+
+            max_depth = 0
+            for parent in child_to_parents[class_name]:
+                depth = calculate_depth(parent, visited.copy())
+                max_depth = max(max_depth, depth + 1)
+            return max_depth
+
+        depth_distribution = {}
+        for class_info_item in class_info:
+            depth = calculate_depth(class_info_item.qualified_name)
+            depth_distribution[depth] = depth_distribution.get(depth, 0) + 1
+
+        report["inheritance_depth"] = depth_distribution
+
+        return report

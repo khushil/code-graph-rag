@@ -3,6 +3,7 @@
 import json
 import re
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -162,8 +163,7 @@ class SecurityAnalyzer:
 
                     # Check for SQL queries (handle both execute and cursor.execute)
                     elif (
-                        func_name.endswith("execute")
-                        or func_name.endswith("executemany")
+                        func_name.endswith(("execute", "executemany"))
                         or ".execute" in func_name
                     ):
                         # Check if using string concatenation
@@ -340,7 +340,7 @@ class SecurityAnalyzer:
 
         patterns = self.vulnerability_patterns.get(self.language, {})
 
-        for pattern_name, pattern_info in patterns.items():
+        for _pattern_name, pattern_info in patterns.items():
             regex = pattern_info["regex"]
             for match in re.finditer(regex, content, re.MULTILINE):
                 line_num = content[: match.start()].count("\n") + 1
@@ -373,8 +373,6 @@ class SecurityAnalyzer:
                 return vulnerabilities
 
             # Write content to temporary file for semgrep
-            import tempfile
-
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=Path(file_path).suffix, delete=False
             ) as tmp:
@@ -561,12 +559,13 @@ class SecurityAnalyzer:
             if child.type == "keyword_argument":
                 name = child.child_by_field_name("name")
                 value = child.child_by_field_name("value")
-                if name and value:
-                    if (
-                        self._get_node_text(name) == "shell"
-                        and self._get_node_text(value) == "True"
-                    ):
-                        return True
+                if (
+                    name
+                    and value
+                    and self._get_node_text(name) == "shell"
+                    and self._get_node_text(value) == "True"
+                ):
+                    return True
         return False
 
     def _extract_cwe_from_metadata(self, metadata: dict) -> str | None:
@@ -575,6 +574,166 @@ class SecurityAnalyzer:
         if cwe and isinstance(cwe, list) and len(cwe) > 0:
             return cwe[0]
         return None
+
+    def build_security_graph(
+        self,
+        module_path: str,
+        vulnerabilities: list[Vulnerability],
+        taint_flows: list[TaintFlow],
+    ) -> tuple[list[dict], list[dict]]:
+        """Build graph nodes and relationships for security analysis."""
+        nodes = []
+        relationships = []
+
+        # Create Vulnerability nodes
+        for vuln in vulnerabilities:
+            vuln_id = f"{module_path}:{vuln.line_number}:{vuln.vuln_type}"
+
+            vuln_node = {
+                "label": "Vulnerability",
+                "properties": {
+                    "vulnerability_id": vuln_id,
+                    "type": vuln.vuln_type,
+                    "severity": vuln.severity,
+                    "description": vuln.description,
+                    "line_number": vuln.line_number,
+                    "file_path": vuln.file_path,
+                    "code_snippet": vuln.code_snippet,
+                    "cwe_id": vuln.cwe_id,
+                    "confidence": vuln.confidence,
+                    "recommendation": vuln.recommendation,
+                },
+            }
+            nodes.append(vuln_node)
+
+            # Create HAS_VULNERABILITY relationship from Module
+            has_vuln_rel = {
+                "start_label": "Module",
+                "start_key": "qualified_name",
+                "start_value": module_path,
+                "rel_type": "HAS_VULNERABILITY",
+                "end_label": "Vulnerability",
+                "end_key": "vulnerability_id",
+                "end_value": vuln_id,
+                "properties": {
+                    "severity": vuln.severity,
+                    "line_number": vuln.line_number,
+                    "confidence": vuln.confidence,
+                },
+            }
+            relationships.append(has_vuln_rel)
+
+        # Create EXPLOIT_PATH relationships for taint flows
+        for taint in taint_flows:
+            # Create relationships along the flow path
+            for i in range(len(taint.flow_path) - 1):
+                source_loc = taint.flow_path[i]
+                target_loc = taint.flow_path[i + 1]
+
+                exploit_rel = {
+                    "start_label": "Module",
+                    "start_key": "qualified_name",
+                    "start_value": f"{source_loc[0]}:{source_loc[1]}",
+                    "rel_type": "EXPLOIT_PATH",
+                    "end_label": "Module",
+                    "end_key": "qualified_name",
+                    "end_value": f"{target_loc[0]}:{target_loc[1]}",
+                    "properties": {
+                        "source_type": taint.source_type,
+                        "sink_type": taint.sink_type,
+                        "is_validated": taint.is_validated,
+                        "flow_index": i,
+                    },
+                }
+                relationships.append(exploit_rel)
+
+            # Create direct TAINT_FLOW relationship from source to sink
+            if taint.flow_path:
+                taint_rel = {
+                    "start_label": "Module",
+                    "start_key": "qualified_name",
+                    "start_value": f"{taint.source_location[0]}:{taint.source_location[1]}",
+                    "rel_type": "TAINT_FLOW",
+                    "end_label": "Module",
+                    "end_key": "qualified_name",
+                    "end_value": f"{taint.sink_location[0]}:{taint.sink_location[1]}",
+                    "properties": {
+                        "source_type": taint.source_type,
+                        "sink_type": taint.sink_type,
+                        "is_validated": taint.is_validated,
+                        "path_length": len(taint.flow_path),
+                    },
+                }
+                relationships.append(taint_rel)
+
+        return nodes, relationships
+
+    def generate_security_report(
+        self, vulnerabilities: list[Vulnerability], taint_flows: list[TaintFlow]
+    ) -> dict:
+        """Generate a comprehensive security report."""
+        report = {
+            "total_vulnerabilities": len(vulnerabilities),
+            "critical_count": sum(
+                1 for v in vulnerabilities if v.severity == "critical"
+            ),
+            "high_count": sum(1 for v in vulnerabilities if v.severity == "high"),
+            "medium_count": sum(1 for v in vulnerabilities if v.severity == "medium"),
+            "low_count": sum(1 for v in vulnerabilities if v.severity == "low"),
+            "vulnerability_breakdown": {},
+            "cwe_distribution": {},
+            "taint_flows": {
+                "total": len(taint_flows),
+                "validated": sum(1 for t in taint_flows if t.is_validated),
+                "unvalidated": sum(1 for t in taint_flows if not t.is_validated),
+                "by_source_type": {},
+                "by_sink_type": {},
+            },
+            "recommendations": [],
+        }
+
+        # Count vulnerabilities by type
+        vuln_types = {}
+        cwe_counts = {}
+
+        for vuln in vulnerabilities:
+            vuln_types[vuln.vuln_type] = vuln_types.get(vuln.vuln_type, 0) + 1
+            if vuln.cwe_id:
+                cwe_counts[vuln.cwe_id] = cwe_counts.get(vuln.cwe_id, 0) + 1
+
+        report["vulnerability_breakdown"] = vuln_types
+        report["cwe_distribution"] = cwe_counts
+
+        # Count taint flows by type
+        source_types = {}
+        sink_types = {}
+
+        for taint in taint_flows:
+            source_types[taint.source_type] = source_types.get(taint.source_type, 0) + 1
+            sink_types[taint.sink_type] = sink_types.get(taint.sink_type, 0) + 1
+
+        report["taint_flows"]["by_source_type"] = source_types
+        report["taint_flows"]["by_sink_type"] = sink_types
+
+        # Generate recommendations
+        if report["critical_count"] > 0:
+            report["recommendations"].append(
+                "Address critical vulnerabilities immediately - they pose immediate risk"
+            )
+        if "sql_injection" in vuln_types:
+            report["recommendations"].append(
+                "Use parameterized queries for all database operations"
+            )
+        if "xss" in vuln_types:
+            report["recommendations"].append(
+                "Sanitize all user input and use content security policies"
+            )
+        if report["taint_flows"]["unvalidated"] > 0:
+            report["recommendations"].append(
+                f"Add validation for {report['taint_flows']['unvalidated']} unvalidated data flows"
+            )
+
+        return report
 
     def _get_line_snippet(self, node: Node) -> str:
         """Get the line of code containing the node."""

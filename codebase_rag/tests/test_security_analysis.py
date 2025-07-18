@@ -22,9 +22,9 @@ class TestSecurityAnalysis:
         python_code = """
 user_input = input("Enter expression: ")
 result = eval(user_input)  # Dangerous!
-print(result)
+# print(result)
 
-code = "print('hello')"
+# code = "print('hello')"
 exec(code)  # Also dangerous!
 """
 
@@ -305,3 +305,172 @@ if user_input2.isdigit():
         taint_flows = analyzer.analyze_taint_flow("test.py", python_code, data_flows)
 
         assert isinstance(taint_flows, list)
+
+    def test_build_security_graph(self, parsers_and_queries):
+        """Test building security graph with Vulnerability nodes."""
+        parsers, queries = parsers_and_queries
+
+        from codebase_rag.analysis.security import TaintFlow, Vulnerability
+
+        analyzer = SecurityAnalyzer(parsers["python"], queries["python"], "python")
+
+        # Create test vulnerabilities
+        vulnerabilities = [
+            Vulnerability(
+                vuln_type="sql_injection",
+                severity="critical",
+                description="SQL injection vulnerability",
+                file_path="module.py",
+                line_number=100,
+                code_snippet="execute(query)",
+                cwe_id="CWE-89",
+                recommendation="Use parameterized queries",
+                confidence=0.9,
+            ),
+            Vulnerability(
+                vuln_type="xss",
+                severity="high",
+                description="Cross-site scripting vulnerability",
+                file_path="module.py",
+                line_number=200,
+                code_snippet="innerHTML = user_input",
+                cwe_id="CWE-79",
+                recommendation="Sanitize user input",
+                confidence=0.85,
+            ),
+        ]
+
+        # Create test taint flows
+        taint_flows = [
+            TaintFlow(
+                source_type="user_input",
+                source_location=("module.py", 50),
+                sink_type="sql",
+                sink_location=("module.py", 100),
+                flow_path=[("module.py", 50), ("module.py", 75), ("module.py", 100)],
+                is_validated=False,
+            )
+        ]
+
+        nodes, relationships = analyzer.build_security_graph(
+            "module", vulnerabilities, taint_flows
+        )
+
+        # Check Vulnerability nodes
+        assert len(nodes) == 2
+        vuln_node = nodes[0]
+        assert vuln_node["label"] == "Vulnerability"
+        assert vuln_node["properties"]["type"] == "sql_injection"
+        assert vuln_node["properties"]["severity"] == "critical"
+        assert vuln_node["properties"]["cwe_id"] == "CWE-89"
+        assert vuln_node["properties"]["confidence"] == 0.9
+
+        # Check HAS_VULNERABILITY relationships
+        has_vuln_rels = [
+            r for r in relationships if r["rel_type"] == "HAS_VULNERABILITY"
+        ]
+        assert len(has_vuln_rels) == 2
+        assert has_vuln_rels[0]["start_value"] == "module"
+        assert has_vuln_rels[0]["properties"]["severity"] == "critical"
+
+        # Check EXPLOIT_PATH relationships
+        exploit_rels = [r for r in relationships if r["rel_type"] == "EXPLOIT_PATH"]
+        assert len(exploit_rels) == 2  # Two segments in the path
+
+        # Check TAINT_FLOW relationship
+        taint_rels = [r for r in relationships if r["rel_type"] == "TAINT_FLOW"]
+        assert len(taint_rels) == 1
+        assert taint_rels[0]["properties"]["source_type"] == "user_input"
+        assert taint_rels[0]["properties"]["sink_type"] == "sql"
+        assert not taint_rels[0]["properties"]["is_validated"]
+
+    def test_generate_security_report(self, parsers_and_queries):
+        """Test generating comprehensive security report."""
+        parsers, queries = parsers_and_queries
+
+        from codebase_rag.analysis.security import TaintFlow, Vulnerability
+
+        analyzer = SecurityAnalyzer(parsers["python"], queries["python"], "python")
+
+        vulnerabilities = [
+            Vulnerability(
+                vuln_type="sql_injection",
+                severity="critical",
+                description="SQL injection",
+                file_path="file1.py",
+                line_number=10,
+                code_snippet="execute(query)",
+                cwe_id="CWE-89",
+            ),
+            Vulnerability(
+                vuln_type="xss",
+                severity="high",
+                description="XSS vulnerability",
+                file_path="file2.py",
+                line_number=20,
+                code_snippet="innerHTML",
+                cwe_id="CWE-79",
+            ),
+            Vulnerability(
+                vuln_type="hardcoded_secret",
+                severity="medium",
+                description="Hardcoded password",
+                file_path="file3.py",
+                line_number=30,
+                code_snippet="password='secret'",
+                cwe_id="CWE-798",
+            ),
+        ]
+
+        taint_flows = [
+            TaintFlow(
+                source_type="user_input",
+                source_location=("file1.py", 5),
+                sink_type="sql",
+                sink_location=("file1.py", 10),
+                flow_path=[("file1.py", 5), ("file1.py", 10)],
+                is_validated=False,
+            ),
+            TaintFlow(
+                source_type="env_var",
+                source_location=("file2.py", 15),
+                sink_type="exec",
+                sink_location=("file2.py", 25),
+                flow_path=[("file2.py", 15), ("file2.py", 25)],
+                is_validated=True,
+            ),
+        ]
+
+        report = analyzer.generate_security_report(vulnerabilities, taint_flows)
+
+        # Check vulnerability counts
+        assert report["total_vulnerabilities"] == 3
+        assert report["critical_count"] == 1
+        assert report["high_count"] == 1
+        assert report["medium_count"] == 1
+        assert report["low_count"] == 0
+
+        # Check vulnerability breakdown
+        assert report["vulnerability_breakdown"]["sql_injection"] == 1
+        assert report["vulnerability_breakdown"]["xss"] == 1
+        assert report["vulnerability_breakdown"]["hardcoded_secret"] == 1
+
+        # Check CWE distribution
+        assert report["cwe_distribution"]["CWE-89"] == 1
+        assert report["cwe_distribution"]["CWE-79"] == 1
+        assert report["cwe_distribution"]["CWE-798"] == 1
+
+        # Check taint flows
+        assert report["taint_flows"]["total"] == 2
+        assert report["taint_flows"]["validated"] == 1
+        assert report["taint_flows"]["unvalidated"] == 1
+        assert report["taint_flows"]["by_source_type"]["user_input"] == 1
+        assert report["taint_flows"]["by_source_type"]["env_var"] == 1
+        assert report["taint_flows"]["by_sink_type"]["sql"] == 1
+        assert report["taint_flows"]["by_sink_type"]["exec"] == 1
+
+        # Check recommendations
+        assert len(report["recommendations"]) >= 3
+        assert any("critical" in r for r in report["recommendations"])
+        assert any("parameterized queries" in r for r in report["recommendations"])
+        assert any("validation" in r for r in report["recommendations"])
