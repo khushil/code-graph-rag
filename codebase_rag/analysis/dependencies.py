@@ -1,6 +1,7 @@
 """Enhanced dependency analysis for tracking module relationships and detecting issues."""
 
 from dataclasses import dataclass
+from typing import Any
 
 from loguru import logger
 from tree_sitter import Node
@@ -403,3 +404,163 @@ class DependencyAnalyzer:
                 lines.append(self._source_lines[i])
             lines.append(self._source_lines[end_line][:end_col])
             return "\n".join(lines)
+    
+    def build_dependency_graph(
+        self, module_info: dict[str, DependencyInfo]
+    ) -> tuple[list[dict], list[dict]]:
+        """Build graph nodes and relationships for module dependencies."""
+        nodes = []
+        relationships = []
+        
+        # Create Export nodes for each module's exports
+        for module_path, info in module_info.items():
+            for export in info.exports:
+                export_node = {
+                    "label": "Export",
+                    "properties": {
+                        "symbol": export.symbol,
+                        "module": module_path,
+                        "export_type": export.export_type,
+                        "line_number": export.line_number,
+                        "is_default": export.is_default,
+                        "is_reexport": export.is_reexport,
+                        "qualified_name": f"{module_path}.{export.symbol}",
+                    },
+                }
+                nodes.append(export_node)
+                
+                # Create EXPORTS relationship from Module to Export
+                exports_rel = {
+                    "start_label": "Module",
+                    "start_key": "qualified_name",
+                    "start_value": module_path,
+                    "rel_type": "EXPORTS",
+                    "end_label": "Export",
+                    "end_key": "qualified_name",
+                    "end_value": f"{module_path}.{export.symbol}",
+                    "properties": {
+                        "export_type": export.export_type,
+                        "line_number": export.line_number,
+                    },
+                }
+                relationships.append(exports_rel)
+        
+        # Create REQUIRES relationships based on imports
+        for module_path, info in module_info.items():
+            for imp in info.imports:
+                # Try to find the exported symbol in the source module
+                source_info = module_info.get(imp.source_module)
+                if source_info:
+                    # Check if the imported symbol is exported
+                    matching_export = None
+                    for export in source_info.exports:
+                        if export.symbol == imp.symbol or imp.symbol == "*":
+                            matching_export = export
+                            break
+                    
+                    if matching_export or imp.symbol == "*":
+                        # Create REQUIRES relationship
+                        requires_rel = {
+                            "start_label": "Module",
+                            "start_key": "qualified_name", 
+                            "start_value": module_path,
+                            "rel_type": "REQUIRES",
+                            "end_label": "Module",
+                            "end_key": "qualified_name",
+                            "end_value": imp.source_module,
+                            "properties": {
+                                "symbol": imp.symbol,
+                                "import_type": imp.import_type,
+                                "line_number": imp.line_number,
+                                "alias": imp.alias,
+                            },
+                        }
+                        relationships.append(requires_rel)
+                        
+                        # If specific symbol, create IMPORTS relationship to Export
+                        if imp.symbol != "*" and matching_export:
+                            imports_rel = {
+                                "start_label": "Module",
+                                "start_key": "qualified_name",
+                                "start_value": module_path,
+                                "rel_type": "IMPORTS",
+                                "end_label": "Export",
+                                "end_key": "qualified_name",
+                                "end_value": f"{imp.source_module}.{imp.symbol}",
+                                "properties": {
+                                    "alias": imp.alias,
+                                    "line_number": imp.line_number,
+                                },
+                            }
+                            relationships.append(imports_rel)
+        
+        return nodes, relationships
+    
+    def generate_dependency_report(
+        self, module_info: dict[str, DependencyInfo]
+    ) -> dict[str, Any]:
+        """Generate a comprehensive dependency report."""
+        report = {
+            "total_modules": len(module_info),
+            "total_exports": sum(len(info.exports) for info in module_info.values()),
+            "total_imports": sum(len(info.imports) for info in module_info.values()),
+            "circular_dependencies": [],
+            "most_depended_on": [],
+            "most_dependencies": [],
+            "unused_exports": [],
+        }
+        
+        # Build dependency graph for analysis
+        module_deps = {
+            module: info.dependencies for module, info in module_info.items()
+        }
+        
+        # Detect circular dependencies
+        cycles = self.detect_circular_dependencies(module_deps)
+        report["circular_dependencies"] = cycles
+        
+        # Find most depended on modules
+        dependency_counts = {}
+        for info in module_info.values():
+            for dep in info.dependencies:
+                dependency_counts[dep] = dependency_counts.get(dep, 0) + 1
+        
+        most_depended = sorted(
+            dependency_counts.items(), key=lambda x: x[1], reverse=True
+        )[:10]
+        report["most_depended_on"] = [
+            {"module": mod, "dependent_count": count} for mod, count in most_depended
+        ]
+        
+        # Find modules with most dependencies
+        most_deps = sorted(
+            [(mod, len(info.dependencies)) for mod, info in module_info.items()],
+            key=lambda x: x[1],
+            reverse=True,
+        )[:10]
+        report["most_dependencies"] = [
+            {"module": mod, "dependency_count": count} for mod, count in most_deps
+        ]
+        
+        # Find potentially unused exports
+        all_imports = set()
+        for info in module_info.values():
+            for imp in info.imports:
+                if imp.symbol != "*":
+                    all_imports.add(f"{imp.source_module}.{imp.symbol}")
+        
+        unused = []
+        for module, info in module_info.items():
+            for export in info.exports:
+                qualified_name = f"{module}.{export.symbol}"
+                if qualified_name not in all_imports and not export.is_default:
+                    unused.append({
+                        "module": module,
+                        "symbol": export.symbol,
+                        "type": export.export_type,
+                        "line": export.line_number,
+                    })
+        
+        report["unused_exports"] = unused[:20]  # Limit to top 20
+        
+        return report

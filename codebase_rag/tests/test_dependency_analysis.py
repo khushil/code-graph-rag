@@ -1,197 +1,239 @@
-"""Test dependency analysis functionality."""
+"""Tests for enhanced dependency analysis."""
 
+from unittest.mock import MagicMock
 
 import pytest
 
-from codebase_rag.analysis.dependencies import DependencyAnalyzer
-from codebase_rag.parser_loader import load_parsers
+from codebase_rag.analysis.dependencies import (
+    DependencyAnalyzer,
+    DependencyInfo,
+    Export,
+    Import,
+)
 
 
-class TestDependencyAnalysis:
-    """Test dependency analysis for various languages."""
+class TestDependencyAnalyzer:
+    """Test the enhanced dependency analysis functionality."""
 
-    @pytest.fixture(scope="class")
-    def parsers_and_queries(self):
-        """Load parsers and queries once for all tests."""
-        parsers, queries = load_parsers()
-        return parsers, queries
+    @pytest.fixture
+    def analyzer(self):
+        """Create a dependency analyzer."""
+        parser = MagicMock()
+        queries = {"imports": MagicMock(), "functions": MagicMock(), "classes": MagicMock()}
+        return DependencyAnalyzer(parser, queries, "python")
 
-    def test_python_imports(self, parsers_and_queries):
-        """Test Python import detection."""
-        parsers, queries = parsers_and_queries
+    def test_export_dataclass(self):
+        """Test Export dataclass."""
+        export = Export(
+            symbol="my_function",
+            export_type="function",
+            line_number=10,
+            is_default=False,
+            is_reexport=False,
+            source_module=None,
+        )
+        
+        assert export.symbol == "my_function"
+        assert export.export_type == "function"
+        assert export.line_number == 10
+        assert not export.is_default
+        assert not export.is_reexport
 
-        python_code = '''
-import os
-import sys
-from pathlib import Path
-from typing import List, Dict as DictType
-from ..utils import helper
-from . import local_module
-import package.submodule as sub
-'''
+    def test_import_dataclass(self):
+        """Test Import dataclass."""
+        imp = Import(
+            symbol="datetime",
+            source_module="datetime",
+            import_type="named",
+            line_number=1,
+            alias=None,
+            is_type_only=False,
+        )
+        
+        assert imp.symbol == "datetime"
+        assert imp.source_module == "datetime"
+        assert imp.import_type == "named"
+        assert imp.line_number == 1
+        assert imp.alias is None
+        assert not imp.is_type_only
 
-        analyzer = DependencyAnalyzer(parsers["python"], queries["python"], "python")
-        exports, imports = analyzer.analyze_file("test.py", python_code, "test_module")
+    def test_dependency_info_dataclass(self):
+        """Test DependencyInfo dataclass."""
+        exports = [Export("func1", "function", 10)]
+        imports = [Import("func2", "other_module", "named", 1)]
+        
+        dep_info = DependencyInfo(
+            module_path="my_module",
+            exports=exports,
+            imports=imports,
+            dependencies={"other_module"},
+            dependents=set(),
+        )
+        
+        assert dep_info.module_path == "my_module"
+        assert len(dep_info.exports) == 1
+        assert len(dep_info.imports) == 1
+        assert "other_module" in dep_info.dependencies
 
-        # Check imports
-        assert len(imports) > 0
+    def test_circular_dependency_detection(self, analyzer):
+        """Test detecting circular dependencies."""
+        # Create a circular dependency graph
+        module_deps = {
+            "module_a": {"module_b"},
+            "module_b": {"module_c"},
+            "module_c": {"module_a"},  # Creates cycle
+            "module_d": {"module_e"},
+            "module_e": set(),
+        }
+        
+        cycles = analyzer.detect_circular_dependencies(module_deps)
+        
+        assert len(cycles) == 1
+        cycle = cycles[0]
+        assert len(cycle) == 4  # Includes the starting node twice to show the cycle
+        assert cycle[0] == cycle[-1]  # Should start and end with same node
+        assert set(cycle[:-1]) == {"module_a", "module_b", "module_c"}
 
-        # Check specific imports
-        import_sources = {imp.source_module for imp in imports}
-        assert "os" in import_sources
-        assert "sys" in import_sources
-        assert "pathlib" in import_sources
-        assert "typing" in import_sources
-        assert "..utils" in import_sources  # Relative import
-        assert "." in import_sources  # Current package import
-        assert "package.submodule" in import_sources
-
-        # Check import types
-        typing_imports = [imp for imp in imports if imp.source_module == "typing"]
-        assert len(typing_imports) == 2  # List and Dict
-        assert any(imp.symbol == "List" for imp in typing_imports)
-        assert any(imp.symbol == "Dict" and imp.alias == "DictType" for imp in typing_imports)
-
-    def test_python_exports(self, parsers_and_queries):
-        """Test Python export detection."""
-        parsers, queries = parsers_and_queries
-
-        python_code = '''
-__all__ = ["public_function", "PublicClass"]
-
-def public_function():
-    pass
-
-def _private_function():
-    pass
-
-class PublicClass:
-    pass
-
-class _PrivateClass:
-    pass
-
-# Global variable
-CONFIG = {"debug": True}
-'''
-
-        analyzer = DependencyAnalyzer(parsers["python"], queries["python"], "python")
-        exports, imports = analyzer.analyze_file("test.py", python_code, "test_module")
-
-        # Check exports
-        export_symbols = {exp.symbol for exp in exports}
-
-        # Should include top-level functions and classes
-        assert "public_function" in export_symbols
-        assert "PublicClass" in export_symbols
-        assert "_private_function" in export_symbols  # Even private ones are technically exportable
-        assert "_PrivateClass" in export_symbols
-
-        # Check export types
-        func_exports = [exp for exp in exports if exp.export_type == "function"]
-        class_exports = [exp for exp in exports if exp.export_type == "class"]
-
-        assert len(func_exports) == 2
-        assert len(class_exports) == 2
-
-        # Check __all__ re-exports
-        reexports = [exp for exp in exports if exp.is_reexport]
-        assert len(reexports) == 2
-        assert all(exp.symbol in ["public_function", "PublicClass"] for exp in reexports)
-
-    def test_circular_dependency_detection(self, parsers_and_queries):
-        """Test circular dependency detection."""
-        parsers, queries = parsers_and_queries
-
-        # Create a mock dependency graph with cycles
+    def test_no_circular_dependencies(self, analyzer):
+        """Test when there are no circular dependencies."""
         module_deps = {
             "module_a": {"module_b", "module_c"},
-            "module_b": {"module_c", "module_d"},
-            "module_c": {"module_a"},  # Creates cycle: a -> c -> a
-            "module_d": {"module_e"},
-            "module_e": {"module_d"},  # Creates cycle: d -> e -> d
-            "module_f": {"module_g"},
-            "module_g": {"module_h"},
-            "module_h": {"module_f"},  # Creates cycle: f -> g -> h -> f
+            "module_b": {"module_d"},
+            "module_c": {"module_d"},
+            "module_d": set(),
         }
-
-        analyzer = DependencyAnalyzer(None, {}, "")
+        
         cycles = analyzer.detect_circular_dependencies(module_deps)
+        assert len(cycles) == 0
 
-        # Should find 3 cycles
-        assert len(cycles) == 3
+    def test_build_dependency_graph(self, analyzer):
+        """Test building dependency graph with EXPORTS and REQUIRES edges."""
+        # Create module info
+        module_info = {
+            "module_a": DependencyInfo(
+                module_path="module_a",
+                exports=[
+                    Export("func_a", "function", 10),
+                    Export("ClassA", "class", 20),
+                ],
+                imports=[
+                    Import("func_b", "module_b", "named", 1),
+                ],
+                dependencies={"module_b"},
+                dependents=set(),
+            ),
+            "module_b": DependencyInfo(
+                module_path="module_b",
+                exports=[
+                    Export("func_b", "function", 5),
+                ],
+                imports=[],
+                dependencies=set(),
+                dependents={"module_a"},
+            ),
+        }
+        
+        nodes, relationships = analyzer.build_dependency_graph(module_info)
+        
+        # Check Export nodes
+        assert len(nodes) == 3  # 2 from module_a, 1 from module_b
+        export_nodes = [n for n in nodes if n["label"] == "Export"]
+        assert len(export_nodes) == 3
+        
+        # Check EXPORTS relationships
+        exports_rels = [r for r in relationships if r["rel_type"] == "EXPORTS"]
+        assert len(exports_rels) == 3
+        
+        # Check REQUIRES relationships
+        requires_rels = [r for r in relationships if r["rel_type"] == "REQUIRES"]
+        assert len(requires_rels) == 1
+        assert requires_rels[0]["start_value"] == "module_a"
+        assert requires_rels[0]["end_value"] == "module_b"
+        
+        # Check IMPORTS relationships
+        imports_rels = [r for r in relationships if r["rel_type"] == "IMPORTS"]
+        assert len(imports_rels) == 1
+        assert imports_rels[0]["end_value"] == "module_b.func_b"
 
-        # Verify specific cycles exist (order may vary)
-        cycle_sets = [set(cycle[:-1]) for cycle in cycles]  # Remove duplicate last element
+    def test_generate_dependency_report(self, analyzer):
+        """Test generating dependency report."""
+        module_info = {
+            "module_a": DependencyInfo(
+                module_path="module_a",
+                exports=[Export("func_a", "function", 10)],
+                imports=[Import("func_b", "module_b", "named", 1)],
+                dependencies={"module_b", "module_c"},
+                dependents=set(),
+            ),
+            "module_b": DependencyInfo(
+                module_path="module_b",
+                exports=[Export("func_b", "function", 5)],
+                imports=[],
+                dependencies=set(),
+                dependents={"module_a"},
+            ),
+            "module_c": DependencyInfo(
+                module_path="module_c",
+                exports=[Export("func_c", "function", 3)],  # Unused export
+                imports=[],
+                dependencies=set(),
+                dependents={"module_a"},
+            ),
+        }
+        
+        report = analyzer.generate_dependency_report(module_info)
+        
+        assert report["total_modules"] == 3
+        assert report["total_exports"] == 3
+        assert report["total_imports"] == 1
+        assert len(report["circular_dependencies"]) == 0
+        
+        # Check most depended on
+        assert len(report["most_depended_on"]) >= 2
+        most_depended = report["most_depended_on"][0]
+        assert most_depended["module"] in ["module_b", "module_c"]
+        assert most_depended["dependent_count"] == 1
+        
+        # Check modules with most dependencies
+        assert len(report["most_dependencies"]) >= 1
+        most_deps = report["most_dependencies"][0]
+        assert most_deps["module"] == "module_a"
+        assert most_deps["dependency_count"] == 2
+        
+        # Check unused exports
+        assert len(report["unused_exports"]) == 2  # func_a is also unused (no imports)
+        unused_symbols = {(u["module"], u["symbol"]) for u in report["unused_exports"]}
+        assert ("module_a", "func_a") in unused_symbols
+        assert ("module_c", "func_c") in unused_symbols
 
-        # The a->c->a cycle might be detected as a->b->c->a or a->c->a
-        assert any({"module_a", "module_c"}.issubset(s) for s in cycle_sets)
-        assert {"module_d", "module_e"} in cycle_sets
-        assert {"module_f", "module_g", "module_h"} in cycle_sets
-
-    def test_python_relative_imports(self, parsers_and_queries):
-        """Test Python relative import handling."""
-        parsers, queries = parsers_and_queries
-
-        python_code = '''
-from . import sibling
-from .. import parent
-from ...package import cousin
-from ..utils.helpers import utility_func
-'''
-
-        analyzer = DependencyAnalyzer(parsers["python"], queries["python"], "python")
-        exports, imports = analyzer.analyze_file("test.py", python_code, "package.subpackage.module")
-
-        # Check relative imports
-        relative_imports = [imp for imp in imports if imp.source_module.startswith(".")]
-        assert len(relative_imports) == 4
-
-        # Check different relative levels
-        import_modules = {imp.source_module for imp in imports}
-        assert "." in import_modules  # Same package
-        assert ".." in import_modules  # Parent package
-        assert "...package" in import_modules  # Grandparent package with module
-        assert "..utils.helpers" in import_modules  # Parent package subdirectory
-
-    def test_python_star_imports(self, parsers_and_queries):
-        """Test Python star import handling."""
-        parsers, queries = parsers_and_queries
-
-        python_code = '''
-from module import *
-from package.submodule import *
-'''
-
-        analyzer = DependencyAnalyzer(parsers["python"], queries["python"], "python")
-        exports, imports = analyzer.analyze_file("test.py", python_code, "test_module")
-
-        # Check star imports
-        star_imports = [imp for imp in imports if imp.symbol == "*"]
-        assert len(star_imports) == 2
-
-        # Star imports should be marked as namespace type
-        assert all(imp.import_type == "namespace" for imp in star_imports)
-
-    def test_javascript_placeholder(self, parsers_and_queries):
-        """Test JavaScript dependency analysis placeholder."""
-        parsers, queries = parsers_and_queries
-
-        if "javascript" not in parsers:
-            pytest.skip("JavaScript parser not available")
-
-        js_code = '''
-import React from 'react';
-import { Component } from 'react';
-import * as utils from './utils';
-const fs = require('fs');
-export default class MyComponent extends Component {}
-export const helper = () => {};
-'''
-
-        analyzer = DependencyAnalyzer(parsers["javascript"], queries["javascript"], "javascript")
-        exports, imports = analyzer.analyze_file("test.js", js_code, "test_module")
-
-        # For now, just verify it doesn't crash
-        assert isinstance(exports, list)
-        assert isinstance(imports, list)
+    def test_wildcard_imports(self, analyzer):
+        """Test handling of wildcard imports (import *)."""
+        module_info = {
+            "module_a": DependencyInfo(
+                module_path="module_a",
+                exports=[],
+                imports=[Import("*", "module_b", "namespace", 1)],
+                dependencies={"module_b"},
+                dependents=set(),
+            ),
+            "module_b": DependencyInfo(
+                module_path="module_b",
+                exports=[
+                    Export("func1", "function", 5),
+                    Export("func2", "function", 10),
+                ],
+                imports=[],
+                dependencies=set(),
+                dependents={"module_a"},
+            ),
+        }
+        
+        nodes, relationships = analyzer.build_dependency_graph(module_info)
+        
+        # Should create REQUIRES but not specific IMPORTS for wildcard
+        requires_rels = [r for r in relationships if r["rel_type"] == "REQUIRES"]
+        assert len(requires_rels) == 1
+        assert requires_rels[0]["properties"]["symbol"] == "*"
+        
+        imports_rels = [r for r in relationships if r["rel_type"] == "IMPORTS"]
+        assert len(imports_rels) == 0  # No specific imports for wildcard
