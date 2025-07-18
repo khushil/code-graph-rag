@@ -81,6 +81,10 @@ class CParser:
                             "indirection_level": ptr_info.indirection_level,
                             "points_to": ptr_info.points_to,
                             "is_const": ptr_info.is_const,
+                            "uses_arithmetic": getattr(
+                                ptr_info, "uses_arithmetic", False
+                            ),
+                            "initialized_to_null": ptr_info.initialized_to_null,
                         },
                     )
                 )
@@ -91,7 +95,7 @@ class CParser:
             location = (0, 0)
             if fp_name in pointer_info:
                 location = pointer_info[fp_name].location
-            
+
             self.nodes.append(
                 CNode(
                     node_type="function_pointer",
@@ -346,7 +350,7 @@ class CParser:
                         (self.current_file, "INCLUDES", "file", include_path)
                     )
 
-            elif node.type == "preproc_ifdef" or node.type == "preproc_ifndef":
+            elif node.type in {"preproc_ifdef", "preproc_ifndef"}:
                 # Extract conditional compilation
                 name_node = node.child_by_field_name("name")
                 if name_node:
@@ -388,7 +392,7 @@ class CParser:
                     # Skip function pointers - they're handled separately
                     if self._is_function_pointer_declarator(declarator):
                         return
-                    
+
                     name = self._get_identifier_text(declarator, content)
                     var_type = self._get_variable_type(node, content)
 
@@ -628,17 +632,21 @@ class CParser:
         """Check if function is declared static."""
         # Check storage class specifiers before the return type
         for child in func_node.children:
-            if child.type == "storage_class_specifier":
-                if content[child.start_byte : child.end_byte] == "static":
-                    return True
+            if (
+                child.type == "storage_class_specifier"
+                and content[child.start_byte : child.end_byte] == "static"
+            ):
+                return True
         return False
 
     def _is_inline_function(self, func_node: Node, content: str) -> bool:
         """Check if function is declared inline."""
         for child in func_node.children:
-            if child.type == "storage_class_specifier":
-                if content[child.start_byte : child.end_byte] == "inline":
-                    return True
+            if (
+                child.type == "storage_class_specifier"
+                and content[child.start_byte : child.end_byte] == "inline"
+            ):
+                return True
         return False
 
     def _find_containing_function(self, node: Node, content: str) -> str | None:
@@ -713,19 +721,19 @@ class CParser:
 
                 return has_function_declarator(cursor)
         return False
-    
+
     def _is_function_pointer_declarator(self, declarator: Node) -> bool:
         """Check if a declarator is a function pointer."""
         current = declarator
-        
+
         # Navigate through pointer declarators
         while current and current.type == "pointer_declarator":
             current = current.child_by_field_name("declarator")
-        
+
         # Check if we end up with a function declarator
         if current and current.type == "function_declarator":
             return True
-            
+
         # Also check for parenthesized declarators containing function declarators
         if current and current.type == "parenthesized_declarator":
             for child in current.children:
@@ -735,7 +743,7 @@ class CParser:
                         inner = inner.child_by_field_name("declarator")
                     if inner and inner.type == "function_declarator":
                         return True
-                    
+
         return False
 
     def _is_static_declaration(self, node: Node, content: str) -> bool:

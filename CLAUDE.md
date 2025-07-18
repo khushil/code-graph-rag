@@ -6,6 +6,21 @@
 
 You are enhancing the Graph-Code RAG system to support large-scale, multi-language codebases with a focus on C language support (particularly for Linux/BSD kernels), advanced graph relationships, BDD/TDD testing framework integration, and improved scalability. You are working in an already forked repository with the code locally available.
 
+## Core Development Principles
+
+### No Limitations Policy
+When implementing features, **always deliver complete, production-ready solutions**. Do not leave known limitations or TODO comments for later. If an issue is discovered during implementation:
+1. Fix it immediately and properly
+2. Write comprehensive tests covering all edge cases
+3. Ensure the implementation handles all specified scenarios
+4. If a design choice leads to limitations, refactor the approach
+
+This policy ensures:
+- High-quality, maintainable code
+- No technical debt accumulation
+- Predictable behavior for users
+- Easier debugging and future enhancements
+
 ## Key Enhancement Areas
 
 1. **C Language Support** - Full support for C codebases including kernel-specific features
