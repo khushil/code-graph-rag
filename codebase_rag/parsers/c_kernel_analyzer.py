@@ -43,10 +43,10 @@ class ConcurrencyPrimitive:
     is_global: bool = False
 
 
-@dataclass 
+@dataclass
 class IoctlInfo:
     """Information about ioctl definitions."""
-    
+
     name: str
     magic: str
     number: str
@@ -77,13 +77,29 @@ class CKernelAnalyzer:
         "param": r"module_param\s*\(\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*\)",
         "param_desc": r'MODULE_PARM_DESC\s*\(\s*(\w+)\s*,\s*"([^"]+)"\s*\)',
     }
-    
+
     # Ioctl patterns
     IOCTL_PATTERNS = [
-        (r"#define\s+(\w+)\s+_IO\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)", "none", 3),  # _IO(magic, nr)
-        (r"#define\s+(\w+)\s+_IOR\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)", "read", 4),  # _IOR(magic, nr, type)
-        (r"#define\s+(\w+)\s+_IOW\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)", "write", 4),  # _IOW(magic, nr, type)
-        (r"#define\s+(\w+)\s+_IOWR\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)", "read_write", 4),  # _IOWR(magic, nr, type)
+        (
+            r"#define\s+(\w+)\s+_IO\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)",
+            "none",
+            3,
+        ),  # _IO(magic, nr)
+        (
+            r"#define\s+(\w+)\s+_IOR\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)",
+            "read",
+            4,
+        ),  # _IOR(magic, nr, type)
+        (
+            r"#define\s+(\w+)\s+_IOW\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)",
+            "write",
+            4,
+        ),  # _IOW(magic, nr, type)
+        (
+            r"#define\s+(\w+)\s+_IOWR\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)",
+            "read_write",
+            4,
+        ),  # _IOWR(magic, nr, type)
     ]
 
     LOCK_PATTERNS = {
@@ -187,7 +203,7 @@ class CKernelAnalyzer:
                 syscall_key = syscall_name
                 if "COMPAT_" in pattern:
                     syscall_key = f"compat_{syscall_name}"
-                    
+
                 self.syscalls[syscall_key] = SyscallInfo(
                     name=syscall_name,
                     number=-1,  # Would need syscall table to get number
@@ -283,14 +299,14 @@ class CKernelAnalyzer:
                 magic = match.group(2).strip()
                 number = match.group(3).strip()
                 data_type = None
-                
+
                 if group_count == 4:
                     data_type = match.group(4).strip()
-                
+
                 # Get line number
                 start_pos = match.start()
                 line_num = self.content[:start_pos].count("\n") + 1
-                
+
                 self.ioctls[ioctl_name] = IoctlInfo(
                     name=ioctl_name,
                     magic=magic,
@@ -299,12 +315,12 @@ class CKernelAnalyzer:
                     data_type=data_type,
                     location=(line_num, 0),
                 )
-                
+
                 # Add relationship
                 self.kernel_relationships.append(
                     (self.file_path, "DEFINES_IOCTL", "ioctl", ioctl_name)
                 )
-    
+
     def _walk_tree(self, node: Node | None, context: str | None = None) -> None:
         """Walk the AST to find kernel patterns."""
         if node is None:
@@ -350,12 +366,12 @@ class CKernelAnalyzer:
         # Get type from declaration - handle both type_identifier and struct_specifier
         type_text = ""
         type_parts = []
-        
+
         for child in node.children:
             if child.type in ["primitive_type", "type_identifier", "struct_specifier"]:
                 part_text = self.content[child.start_byte : child.end_byte]
                 type_parts.append(part_text)
-                
+
         # Combine all type parts
         type_text = " ".join(type_parts)
 
@@ -510,28 +526,29 @@ class CKernelAnalyzer:
     def _has_storage_class(self, declaration: Node, storage_class: str) -> bool:
         """Check if declaration has specific storage class."""
         for child in declaration.children:
-            if child.type == "storage_class_specifier":
-                if self.content[child.start_byte : child.end_byte] == storage_class:
-                    return True
+            if child.type == "storage_class_specifier" and self.content[child.start_byte : child.end_byte] == storage_class:
+                return True
         return False
 
-    def _extract_syscall_params(self, start_pos: int, param_count: int) -> list[tuple[str, str]]:
+    def _extract_syscall_params(
+        self, start_pos: int, param_count: int
+    ) -> list[tuple[str, str]]:
         """Extract syscall parameters from SYSCALL_DEFINE macro."""
         if param_count == 0:
             return []
-            
+
         params = []
-        
+
         # Find the opening parenthesis after the syscall name
         paren_start = self.content.find("(", start_pos)
         if paren_start == -1:
             return params
-            
+
         # Find matching closing parenthesis, handling nested parentheses
         paren_count = 1
         pos = paren_start + 1
         paren_end = -1
-        
+
         while pos < len(self.content) and paren_count > 0:
             if self.content[pos] == "(":
                 paren_count += 1
@@ -541,18 +558,18 @@ class CKernelAnalyzer:
                     paren_end = pos
                     break
             pos += 1
-            
+
         if paren_end == -1:
             return params
-            
+
         # Extract parameter string and split by commas
-        param_str = self.content[paren_start + 1:paren_end]
-        
+        param_str = self.content[paren_start + 1 : paren_end]
+
         # Skip the syscall name which is the first "parameter"
         parts = []
         current_part = ""
         paren_level = 0
-        
+
         for char in param_str:
             if char == "," and paren_level == 0:
                 parts.append(current_part.strip())
@@ -563,22 +580,22 @@ class CKernelAnalyzer:
                 elif char == ")":
                     paren_level -= 1
                 current_part += char
-                
+
         if current_part.strip():
             parts.append(current_part.strip())
-            
+
         # Skip the first part (syscall name) and process type-name pairs
         parts = parts[1:]  # Skip syscall name
-        
+
         # Group parts into (type, name) pairs
         for i in range(0, len(parts), 2):
             if i + 1 < len(parts):
                 param_type = parts[i].strip()
                 param_name = parts[i + 1].strip()
                 params.append((param_type, param_name))
-                
+
         return params
-    
+
     def _get_identifier_text(self, node: Node) -> str | None:
         """Get identifier text from various node types."""
         if node.type == "identifier":
@@ -593,11 +610,10 @@ class CKernelAnalyzer:
                     return self._get_identifier_text(argument)
 
         # Handle pointer_expression (newer tree-sitter)
-        if node.type == "pointer_expression":
+        if node.type == "pointer_expression" and len(node.children) >= 2 and node.children[0].text == b"&":
             # pointer_expression is &something
-            if len(node.children) >= 2 and node.children[0].text == b"&":
-                operand = node.children[1]
-                return self._get_identifier_text(operand)
+            operand = node.children[1]
+            return self._get_identifier_text(operand)
 
         # Handle field expressions (e.g., d->lock)
         if node.type == "field_expression":
