@@ -19,20 +19,22 @@ class TestSecurityAnalysis:
         """Test detection of eval/exec vulnerabilities in Python."""
         parsers, queries = parsers_and_queries
 
-        python_code = '''
+        python_code = """
 user_input = input("Enter expression: ")
 result = eval(user_input)  # Dangerous!
 print(result)
 
 code = "print('hello')"
 exec(code)  # Also dangerous!
-'''
+"""
 
         analyzer = SecurityAnalyzer(parsers["python"], queries["python"], "python")
         vulnerabilities = analyzer.analyze_file("test.py", python_code, "test_module")
 
         # Should find 2 code injection vulnerabilities
-        code_injections = [v for v in vulnerabilities if v.vuln_type == "code_injection"]
+        code_injections = [
+            v for v in vulnerabilities if v.vuln_type == "code_injection"
+        ]
         assert len(code_injections) >= 2
 
         # Check eval vulnerability
@@ -50,7 +52,7 @@ exec(code)  # Also dangerous!
         """Test detection of SQL injection vulnerabilities."""
         parsers, queries = parsers_and_queries
 
-        python_code = '''
+        python_code = """
 import sqlite3
 
 def unsafe_query(user_id):
@@ -65,7 +67,7 @@ def unsafe_query(user_id):
 
     # Unsafe - string formatting
     cursor.execute(f"SELECT * FROM users WHERE name = '{user_name}'")
-'''
+"""
 
         analyzer = SecurityAnalyzer(parsers["python"], queries["python"], "python")
         vulnerabilities = analyzer.analyze_file("test.py", python_code, "test_module")
@@ -80,7 +82,7 @@ def unsafe_query(user_id):
         """Test detection of command injection vulnerabilities."""
         parsers, queries = parsers_and_queries
 
-        python_code = '''
+        python_code = """
 import subprocess
 import os
 
@@ -94,13 +96,15 @@ subprocess.run(["ls", user_input])
 
 # Also unsafe
 os.system("cat " + user_input)
-'''
+"""
 
         analyzer = SecurityAnalyzer(parsers["python"], queries["python"], "python")
         vulnerabilities = analyzer.analyze_file("test.py", python_code, "test_module")
 
         # Should find command injection vulnerability
-        cmd_injections = [v for v in vulnerabilities if v.vuln_type == "command_injection"]
+        cmd_injections = [
+            v for v in vulnerabilities if v.vuln_type == "command_injection"
+        ]
         assert len(cmd_injections) >= 1
         assert cmd_injections[0].severity == "high"
         assert "shell=True" in cmd_injections[0].description
@@ -109,7 +113,7 @@ os.system("cat " + user_input)
         """Test detection of hardcoded secrets."""
         parsers, queries = parsers_and_queries
 
-        python_code = '''
+        python_code = """
 # Hardcoded credentials
 password = "admin123"
 api_key = "sk-1234567890abcdef"
@@ -117,7 +121,7 @@ SECRET_KEY = "my-secret-key"
 
 # This should be fine
 password_hash = bcrypt.hash(user_password)
-'''
+"""
 
         analyzer = SecurityAnalyzer(parsers["python"], queries["python"], "python")
         vulnerabilities = analyzer.analyze_file("test.py", python_code, "test_module")
@@ -132,7 +136,7 @@ password_hash = bcrypt.hash(user_password)
         """Test detection of weak random number generation."""
         parsers, queries = parsers_and_queries
 
-        python_code = '''
+        python_code = """
 import random
 import secrets
 
@@ -142,7 +146,7 @@ session_id = random.choice(string.ascii_letters)
 
 # Strong - cryptographically secure
 secure_token = secrets.token_hex(16)
-'''
+"""
 
         analyzer = SecurityAnalyzer(parsers["python"], queries["python"], "python")
         vulnerabilities = analyzer.analyze_file("test.py", python_code, "test_module")
@@ -160,20 +164,24 @@ secure_token = secrets.token_hex(16)
         if "javascript" not in parsers:
             pytest.skip("JavaScript parser not available")
 
-        js_code = '''
+        js_code = """
 const userInput = getUserInput();
 const result = eval(userInput);  // Dangerous!
 
 // Also dangerous
 const code = "alert('hello')";
 window.eval(code);
-'''
+"""
 
-        analyzer = SecurityAnalyzer(parsers["javascript"], queries["javascript"], "javascript")
+        analyzer = SecurityAnalyzer(
+            parsers["javascript"], queries["javascript"], "javascript"
+        )
         vulnerabilities = analyzer.analyze_file("test.js", js_code, "test_module")
 
         # Should find eval vulnerabilities
-        code_injections = [v for v in vulnerabilities if v.vuln_type == "code_injection"]
+        code_injections = [
+            v for v in vulnerabilities if v.vuln_type == "code_injection"
+        ]
         assert len(code_injections) >= 1
         assert code_injections[0].severity == "high"
 
@@ -184,15 +192,17 @@ window.eval(code);
         if "javascript" not in parsers:
             pytest.skip("JavaScript parser not available")
 
-        js_code = '''
+        js_code = """
 const userContent = getUserContent();
 document.getElementById('output').innerHTML = userContent;  // XSS vulnerability!
 
 // Safe alternative
 document.getElementById('output').textContent = userContent;
-'''
+"""
 
-        analyzer = SecurityAnalyzer(parsers["javascript"], queries["javascript"], "javascript")
+        analyzer = SecurityAnalyzer(
+            parsers["javascript"], queries["javascript"], "javascript"
+        )
         vulnerabilities = analyzer.analyze_file("test.js", js_code, "test_module")
 
         # Should find XSS vulnerability
@@ -208,7 +218,7 @@ document.getElementById('output').textContent = userContent;
         if "c" not in parsers:
             pytest.skip("C parser not available")
 
-        c_code = '''
+        c_code = """
 #include <stdio.h>
 #include <string.h>
 
@@ -224,13 +234,15 @@ void vulnerable_function(char *user_input) {
     strncpy(buffer, user_input, sizeof(buffer) - 1);
     snprintf(buffer, sizeof(buffer), "User: %s", user_input);
 }
-'''
+"""
 
         analyzer = SecurityAnalyzer(parsers["c"], queries["c"], "c")
         vulnerabilities = analyzer.analyze_file("test.c", c_code, "test_module")
 
         # Should find buffer overflow vulnerabilities
-        buffer_overflows = [v for v in vulnerabilities if v.vuln_type == "buffer_overflow"]
+        buffer_overflows = [
+            v for v in vulnerabilities if v.vuln_type == "buffer_overflow"
+        ]
         assert len(buffer_overflows) >= 3
         assert all(v.severity == "high" for v in buffer_overflows)
         assert all(v.cwe_id == "CWE-120" for v in buffer_overflows)
@@ -247,7 +259,7 @@ void vulnerable_function(char *user_input) {
         if "c" not in parsers:
             pytest.skip("C parser not available")
 
-        c_code = '''
+        c_code = """
 #include <stdio.h>
 
 void log_message(char *user_input) {
@@ -257,7 +269,7 @@ void log_message(char *user_input) {
     // Safe - use format specifier
     printf("%s", user_input);
 }
-'''
+"""
 
         analyzer = SecurityAnalyzer(parsers["c"], queries["c"], "c")
         vulnerabilities = analyzer.analyze_file("test.c", c_code, "test_module")
@@ -272,7 +284,7 @@ void log_message(char *user_input) {
         """Test taint flow analysis from sources to sinks."""
         parsers, queries = parsers_and_queries
 
-        python_code = '''
+        python_code = """
 user_input = input("Enter command: ")  # Taint source
 command = "echo " + user_input
 os.system(command)  # Taint sink - dangerous!
@@ -282,7 +294,7 @@ user_input2 = input("Enter number: ")
 if user_input2.isdigit():
     value = int(user_input2)  # Validated
     process_value(value)
-'''
+"""
 
         analyzer = SecurityAnalyzer(parsers["python"], queries["python"], "python")
         _vulnerabilities = analyzer.analyze_file("test.py", python_code, "test_module")

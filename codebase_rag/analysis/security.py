@@ -13,6 +13,7 @@ from tree_sitter import Node
 @dataclass
 class Vulnerability:
     """Represents a detected security vulnerability."""
+
     vuln_type: str  # "buffer_overflow", "sql_injection", "xss", "race_condition", etc.
     severity: str  # "high", "medium", "low"
     description: str
@@ -27,6 +28,7 @@ class Vulnerability:
 @dataclass
 class TaintFlow:
     """Represents a taint flow from source to sink."""
+
     source_type: str  # "user_input", "file", "network", "env_var"
     source_location: tuple[str, int]  # (file, line)
     sink_type: str  # "exec", "sql", "file_write", "network", "kernel"
@@ -51,7 +53,9 @@ class SecurityAnalyzer:
         self.taint_sources = self._init_taint_sources()
         self.taint_sinks = self._init_taint_sinks()
 
-    def analyze_file(self, file_path: str, content: str, module_qn: str) -> list[Vulnerability]:
+    def analyze_file(
+        self, file_path: str, content: str, module_qn: str
+    ) -> list[Vulnerability]:
         """Analyze a file for security vulnerabilities."""
         self._source_lines = content.split("\n")
         vulnerabilities = []
@@ -62,11 +66,17 @@ class SecurityAnalyzer:
 
         # Run different analyses based on language
         if self.language == "python":
-            vulnerabilities.extend(self._analyze_python_vulnerabilities(root_node, file_path))
+            vulnerabilities.extend(
+                self._analyze_python_vulnerabilities(root_node, file_path)
+            )
         elif self.language in ["javascript", "typescript"]:
-            vulnerabilities.extend(self._analyze_javascript_vulnerabilities(root_node, file_path))
+            vulnerabilities.extend(
+                self._analyze_javascript_vulnerabilities(root_node, file_path)
+            )
         elif self.language == "c":
-            vulnerabilities.extend(self._analyze_c_vulnerabilities(root_node, file_path))
+            vulnerabilities.extend(
+                self._analyze_c_vulnerabilities(root_node, file_path)
+            )
 
         # Run pattern-based detection for all languages
         vulnerabilities.extend(self._detect_pattern_vulnerabilities(content, file_path))
@@ -77,7 +87,9 @@ class SecurityAnalyzer:
 
         return vulnerabilities
 
-    def analyze_taint_flow(self, file_path: str, content: str, data_flows: list) -> list[TaintFlow]:
+    def analyze_taint_flow(
+        self, file_path: str, content: str, data_flows: list
+    ) -> list[TaintFlow]:
         """Analyze taint flows from sources to sinks."""
         taint_flows = []
 
@@ -102,13 +114,15 @@ class SecurityAnalyzer:
                         sink_type=sink[0],
                         sink_location=(file_path, sink[1]),
                         flow_path=flow_path,
-                        is_validated=self._check_validation(flow_path, root_node)
+                        is_validated=self._check_validation(flow_path, root_node),
                     )
                     taint_flows.append(taint_flow)
 
         return taint_flows
 
-    def _analyze_python_vulnerabilities(self, root_node: Node, file_path: str) -> list[Vulnerability]:
+    def _analyze_python_vulnerabilities(
+        self, root_node: Node, file_path: str
+    ) -> list[Vulnerability]:
         """Analyze Python-specific vulnerabilities."""
         vulnerabilities = []
 
@@ -142,12 +156,16 @@ class SecurityAnalyzer:
                             line_number=node.start_point[0] + 1,
                             code_snippet=self._get_line_snippet(node),
                             cwe_id="CWE-94",
-                            recommendation="Avoid using eval/exec, use ast.literal_eval or safer alternatives"
+                            recommendation="Avoid using eval/exec, use ast.literal_eval or safer alternatives",
                         )
                         vulnerabilities.append(vuln)
 
                     # Check for SQL queries (handle both execute and cursor.execute)
-                    elif func_name.endswith("execute") or func_name.endswith("executemany") or ".execute" in func_name:
+                    elif (
+                        func_name.endswith("execute")
+                        or func_name.endswith("executemany")
+                        or ".execute" in func_name
+                    ):
                         # Check if using string concatenation
                         args = node.child_by_field_name("arguments")
                         if args and self._has_string_concatenation(args):
@@ -159,12 +177,16 @@ class SecurityAnalyzer:
                                 line_number=node.start_point[0] + 1,
                                 code_snippet=self._get_line_snippet(node),
                                 cwe_id="CWE-89",
-                                recommendation="Use parameterized queries instead of string concatenation"
+                                recommendation="Use parameterized queries instead of string concatenation",
                             )
                             vulnerabilities.append(vuln)
 
                     # Check for subprocess with shell=True
-                    elif func_name in ["subprocess.run", "subprocess.call", "subprocess.Popen"]:
+                    elif func_name in [
+                        "subprocess.run",
+                        "subprocess.call",
+                        "subprocess.Popen",
+                    ]:
                         args = node.child_by_field_name("arguments")
                         if args and self._has_shell_true(args):
                             vuln = Vulnerability(
@@ -175,7 +197,7 @@ class SecurityAnalyzer:
                                 line_number=node.start_point[0] + 1,
                                 code_snippet=self._get_line_snippet(node),
                                 cwe_id="CWE-78",
-                                recommendation="Use shell=False and pass arguments as a list"
+                                recommendation="Use shell=False and pass arguments as a list",
                             )
                             vulnerabilities.append(vuln)
         except Exception as e:
@@ -183,7 +205,9 @@ class SecurityAnalyzer:
 
         return vulnerabilities
 
-    def _analyze_javascript_vulnerabilities(self, root_node: Node, file_path: str) -> list[Vulnerability]:
+    def _analyze_javascript_vulnerabilities(
+        self, root_node: Node, file_path: str
+    ) -> list[Vulnerability]:
         """Analyze JavaScript/TypeScript vulnerabilities."""
         vulnerabilities = []
 
@@ -216,7 +240,7 @@ class SecurityAnalyzer:
                         line_number=node.start_point[0] + 1,
                         code_snippet=self._get_line_snippet(node.parent),
                         cwe_id="CWE-94",
-                        recommendation="Avoid eval(), use JSON.parse() or safer alternatives"
+                        recommendation="Avoid eval(), use JSON.parse() or safer alternatives",
                     )
                     vulnerabilities.append(vuln)
 
@@ -231,7 +255,7 @@ class SecurityAnalyzer:
                         line_number=node.start_point[0] + 1,
                         code_snippet=self._get_line_snippet(node.parent.parent),
                         cwe_id="CWE-79",
-                        recommendation="Use textContent or sanitize HTML input"
+                        recommendation="Use textContent or sanitize HTML input",
                     )
                     vulnerabilities.append(vuln)
         except Exception as e:
@@ -239,7 +263,9 @@ class SecurityAnalyzer:
 
         return vulnerabilities
 
-    def _analyze_c_vulnerabilities(self, root_node: Node, file_path: str) -> list[Vulnerability]:
+    def _analyze_c_vulnerabilities(
+        self, root_node: Node, file_path: str
+    ) -> list[Vulnerability]:
         """Analyze C-specific vulnerabilities."""
         vulnerabilities = []
 
@@ -260,7 +286,10 @@ class SecurityAnalyzer:
                 "sprintf": ("buffer_overflow", "Use snprintf instead"),
                 "gets": ("buffer_overflow", "Use fgets instead"),
                 "scanf": ("buffer_overflow", "Use fgets with sscanf instead"),
-                "memcpy": ("buffer_overflow", "Ensure destination buffer is large enough"),
+                "memcpy": (
+                    "buffer_overflow",
+                    "Ensure destination buffer is large enough",
+                ),
             }
 
             for node in captures.get("func", []):
@@ -275,7 +304,7 @@ class SecurityAnalyzer:
                         line_number=node.start_point[0] + 1,
                         code_snippet=self._get_line_snippet(node.parent),
                         cwe_id="CWE-120",
-                        recommendation=recommendation
+                        recommendation=recommendation,
                     )
                     vulnerabilities.append(vuln)
         except Exception as e:
@@ -283,11 +312,15 @@ class SecurityAnalyzer:
 
         # Check for race conditions in kernel code
         if "kernel" in file_path.lower() or "driver" in file_path.lower():
-            vulnerabilities.extend(self._check_kernel_race_conditions(root_node, file_path))
+            vulnerabilities.extend(
+                self._check_kernel_race_conditions(root_node, file_path)
+            )
 
         return vulnerabilities
 
-    def _check_kernel_race_conditions(self, root_node: Node, file_path: str) -> list[Vulnerability]:
+    def _check_kernel_race_conditions(
+        self, root_node: Node, file_path: str
+    ) -> list[Vulnerability]:
         """Check for potential race conditions in kernel code."""
         vulnerabilities = []
 
@@ -299,7 +332,9 @@ class SecurityAnalyzer:
 
         return vulnerabilities
 
-    def _detect_pattern_vulnerabilities(self, content: str, file_path: str) -> list[Vulnerability]:
+    def _detect_pattern_vulnerabilities(
+        self, content: str, file_path: str
+    ) -> list[Vulnerability]:
         """Detect vulnerabilities using regex patterns."""
         vulnerabilities = []
 
@@ -308,7 +343,7 @@ class SecurityAnalyzer:
         for pattern_name, pattern_info in patterns.items():
             regex = pattern_info["regex"]
             for match in re.finditer(regex, content, re.MULTILINE):
-                line_num = content[:match.start()].count('\n') + 1
+                line_num = content[: match.start()].count("\n") + 1
                 vuln = Vulnerability(
                     vuln_type=pattern_info["type"],
                     severity=pattern_info["severity"],
@@ -317,44 +352,57 @@ class SecurityAnalyzer:
                     line_number=line_num,
                     code_snippet=match.group(0),
                     cwe_id=pattern_info.get("cwe_id"),
-                    recommendation=pattern_info.get("recommendation")
+                    recommendation=pattern_info.get("recommendation"),
                 )
                 vulnerabilities.append(vuln)
 
         return vulnerabilities
 
-    def _run_semgrep_analysis(self, file_path: str, content: str) -> list[Vulnerability]:
+    def _run_semgrep_analysis(
+        self, file_path: str, content: str
+    ) -> list[Vulnerability]:
         """Run semgrep analysis if available."""
         vulnerabilities = []
 
         try:
             # Check if semgrep is available
-            result = subprocess.run(["semgrep", "--version"], capture_output=True, text=True)
+            result = subprocess.run(
+                ["semgrep", "--version"], check=False, capture_output=True, text=True
+            )
             if result.returncode != 0:
                 return vulnerabilities
 
             # Write content to temporary file for semgrep
             import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix=Path(file_path).suffix, delete=False) as tmp:
+
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=Path(file_path).suffix, delete=False
+            ) as tmp:
                 tmp.write(content)
                 tmp_path = tmp.name
 
             # Run semgrep with auto config
             cmd = ["semgrep", "--config=auto", "--json", tmp_path]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, check=False, capture_output=True, text=True)
 
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 for finding in data.get("results", []):
                     vuln = Vulnerability(
                         vuln_type=finding.get("check_id", "unknown"),
-                        severity=finding.get("extra", {}).get("severity", "medium").lower(),
-                        description=finding.get("extra", {}).get("message", "Security issue detected"),
+                        severity=finding.get("extra", {})
+                        .get("severity", "medium")
+                        .lower(),
+                        description=finding.get("extra", {}).get(
+                            "message", "Security issue detected"
+                        ),
                         file_path=file_path,
                         line_number=finding.get("start", {}).get("line", 0),
                         code_snippet=finding.get("extra", {}).get("lines", ""),
-                        cwe_id=self._extract_cwe_from_metadata(finding.get("extra", {})),
-                        recommendation=finding.get("extra", {}).get("fix", "")
+                        cwe_id=self._extract_cwe_from_metadata(
+                            finding.get("extra", {})
+                        ),
+                        recommendation=finding.get("extra", {}).get("fix", ""),
                     )
                     vulnerabilities.append(vuln)
 
@@ -366,7 +414,9 @@ class SecurityAnalyzer:
 
         return vulnerabilities
 
-    def _find_taint_sources(self, root_node: Node, file_path: str) -> list[tuple[str, int]]:
+    def _find_taint_sources(
+        self, root_node: Node, file_path: str
+    ) -> list[tuple[str, int]]:
         """Find potential taint sources in the code."""
         sources = []
 
@@ -389,7 +439,9 @@ class SecurityAnalyzer:
 
         return sources
 
-    def _find_taint_sinks(self, root_node: Node, file_path: str) -> list[tuple[str, int]]:
+    def _find_taint_sinks(
+        self, root_node: Node, file_path: str
+    ) -> list[tuple[str, int]]:
         """Find potential taint sinks in the code."""
         sinks = []
 
@@ -412,13 +464,17 @@ class SecurityAnalyzer:
 
         return sinks
 
-    def _trace_taint_flow(self, source: tuple, sink: tuple, data_flows: list) -> list[tuple[str, int]]:
+    def _trace_taint_flow(
+        self, source: tuple, sink: tuple, data_flows: list
+    ) -> list[tuple[str, int]]:
         """Trace taint flow from source to sink using data flow information."""
         # This would use the data flow analysis to trace paths
         # For now, return empty list
         return []
 
-    def _check_validation(self, flow_path: list[tuple[str, int]], root_node: Node) -> bool:
+    def _check_validation(
+        self, flow_path: list[tuple[str, int]], root_node: Node
+    ) -> bool:
         """Check if the taint flow has validation."""
         # Check for validation functions like sanitize, escape, etc.
         return False
@@ -433,15 +489,15 @@ class SecurityAnalyzer:
                     "severity": "high",
                     "description": "Hardcoded password or secret detected",
                     "cwe_id": "CWE-798",
-                    "recommendation": "Use environment variables or secure configuration"
+                    "recommendation": "Use environment variables or secure configuration",
                 },
                 "weak_random": {
-                    "regex": r'\brandom\.(random|randint|choice)\(',
+                    "regex": r"\brandom\.(random|randint|choice)\(",
                     "type": "weak_randomness",
                     "severity": "medium",
                     "description": "Use of weak random number generator",
                     "cwe_id": "CWE-330",
-                    "recommendation": "Use secrets module for cryptographic randomness"
+                    "recommendation": "Use secrets module for cryptographic randomness",
                 },
             },
             "javascript": {
@@ -451,19 +507,19 @@ class SecurityAnalyzer:
                     "severity": "high",
                     "description": "Hardcoded password or secret detected",
                     "cwe_id": "CWE-798",
-                    "recommendation": "Use environment variables or secure configuration"
+                    "recommendation": "Use environment variables or secure configuration",
                 },
             },
             "c": {
                 "format_string": {
-                    "regex": r'printf\s*\([^,)]+\)',
+                    "regex": r"printf\s*\([^,)]+\)",
                     "type": "format_string",
                     "severity": "high",
                     "description": "Potential format string vulnerability",
                     "cwe_id": "CWE-134",
-                    "recommendation": "Use printf with format specifiers"
+                    "recommendation": "Use printf with format specifiers",
                 },
-            }
+            },
         }
 
     def _init_taint_sources(self) -> dict[str, list[str]]:
@@ -506,7 +562,10 @@ class SecurityAnalyzer:
                 name = child.child_by_field_name("name")
                 value = child.child_by_field_name("value")
                 if name and value:
-                    if self._get_node_text(name) == "shell" and self._get_node_text(value) == "True":
+                    if (
+                        self._get_node_text(name) == "shell"
+                        and self._get_node_text(value) == "True"
+                    ):
                         return True
         return False
 
@@ -533,11 +592,10 @@ class SecurityAnalyzer:
 
         if start_line == end_line:
             return self._source_lines[start_line][start_col:end_col]
-        else:
-            # Multi-line node
-            lines = []
-            lines.append(self._source_lines[start_line][start_col:])
-            for i in range(start_line + 1, end_line):
-                lines.append(self._source_lines[i])
-            lines.append(self._source_lines[end_line][:end_col])
-            return "\n".join(lines)
+        # Multi-line node
+        lines = []
+        lines.append(self._source_lines[start_line][start_col:])
+        for i in range(start_line + 1, end_line):
+            lines.append(self._source_lines[i])
+        lines.append(self._source_lines[end_line][:end_col])
+        return "\n".join(lines)
