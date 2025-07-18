@@ -149,6 +149,7 @@ class CKernelAnalyzer:
         self.concurrency_primitives: dict[str, ConcurrencyPrimitive] = {}
         self.ioctls: dict[str, IoctlInfo] = {}
         self.kernel_relationships: list[tuple[str, str, str, str]] = []
+        self.external_symbols: set[str] = set()  # Track external symbols used
 
     def analyze_kernel_patterns(
         self, root: Node, content: str, file_path: str
@@ -176,6 +177,9 @@ class CKernelAnalyzer:
 
         # Walk AST for structured analysis
         self._walk_tree(root)
+        
+        # Analyze module dependencies
+        self._analyze_module_dependencies()
 
         return (
             self.syscalls,
@@ -335,10 +339,14 @@ class CKernelAnalyzer:
         # Look for concurrency primitive declarations
         if node.type == "declaration":
             self._analyze_lock_declaration(node)
+            # Also check for extern declarations
+            self._analyze_extern_declaration(node)
 
         # Look for lock/unlock operations
         elif node.type == "call_expression":
             self._analyze_lock_operation(node, context)
+            # Track all function calls for dependency analysis
+            self._track_function_call(node)
 
         # Look for specific macro invocations
         elif node.type == "expression_statement":
@@ -623,3 +631,78 @@ class CKernelAnalyzer:
                 return field.text.decode("utf-8")
 
         return None
+    
+    def _analyze_extern_declaration(self, node: Node) -> None:
+        """Analyze extern declarations to track external symbols."""
+        # Check if it has extern storage class
+        has_extern = False
+        for child in node.children:
+            if child.type == "storage_class_specifier" and self.content[child.start_byte : child.end_byte] == "extern":
+                has_extern = True
+                break
+        
+        if not has_extern:
+            return
+        
+        # Extract the symbol name
+        declarator = None
+        for child in node.named_children:
+            if child.type in ["init_declarator", "declarator", "identifier"]:
+                declarator = child
+                break
+        
+        if declarator:
+            symbol_name = self._extract_variable_name(declarator)
+            if symbol_name:
+                self.external_symbols.add(symbol_name)
+    
+    def _track_function_call(self, node: Node) -> None:
+        """Track function calls that might be external symbols."""
+        func_node = node.child_by_field_name("function")
+        if func_node and func_node.type == "identifier":
+            func_name = func_node.text.decode("utf-8")
+            # Common kernel functions that indicate dependencies
+            kernel_funcs = {
+                "printk", "kmalloc", "kfree", "register_chrdev", "unregister_chrdev",
+                "device_create", "device_destroy", "class_create", "class_destroy",
+                "request_irq", "free_irq", "ioremap", "iounmap", "pci_register_driver",
+                "pci_unregister_driver", "platform_driver_register", "platform_driver_unregister"
+            }
+            # Don't track common C library functions
+            stdlib_funcs = {
+                "memcpy", "memset", "strcpy", "strcmp", "strlen", "sprintf", "snprintf",
+                "malloc", "free", "printf", "fprintf", "fopen", "fclose"
+            }
+            if func_name not in stdlib_funcs and func_name not in self.module_info.exported_symbols:
+                # Could be an external dependency
+                self.external_symbols.add(func_name)
+    
+    def _analyze_module_dependencies(self) -> None:
+        """Analyze module dependencies based on external symbols."""
+        # For each external symbol that's not in our exports, create a MODULE_DEPENDS edge
+        for symbol in self.external_symbols:
+            if symbol not in self.module_info.exported_symbols:
+                # Check if it's a known kernel API
+                kernel_apis = {
+                    "printk": "kernel/printk",
+                    "kmalloc": "mm/slab",
+                    "kfree": "mm/slab", 
+                    "register_chrdev": "fs/char_dev",
+                    "device_create": "drivers/base/core",
+                    "class_create": "drivers/base/class",
+                    "request_irq": "kernel/irq/manage",
+                    "ioremap": "arch/*/mm/ioremap",
+                    "pci_register_driver": "drivers/pci/pci-driver",
+                    "platform_driver_register": "drivers/base/platform"
+                }
+                
+                if symbol in kernel_apis:
+                    # Known kernel API
+                    self.kernel_relationships.append(
+                        (self.file_path, "MODULE_DEPENDS", "kernel_api", kernel_apis[symbol])
+                    )
+                else:
+                    # Unknown external symbol - might be from another module
+                    self.kernel_relationships.append(
+                        (self.file_path, "MODULE_DEPENDS", "symbol", symbol)
+                    )
