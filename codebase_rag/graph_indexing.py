@@ -1,7 +1,5 @@
-"""Graph indexing and query optimization for performance (REQ-SCL-3)."""
+"""Graph indexing module for query optimization (REQ-SCL-3)."""
 
-import time
-from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
@@ -9,355 +7,222 @@ from loguru import logger
 from .services.graph_service import MemgraphIngestor
 
 
-@dataclass
-class IndexDefinition:
-    """Definition of a graph index."""
-    label: str
-    property: str
-    index_type: str = "BTREE"  # BTREE or HASH
-    name: str | None = None
-
-    def get_name(self) -> str:
-        """Get index name."""
-        return self.name or f"idx_{self.label.lower()}_{self.property}"
-
-
-@dataclass
-class QueryStats:
-    """Statistics for a query execution."""
-    query: str
-    execution_time: float
-    nodes_accessed: int
-    cache_hit: bool = False
-
-
 class GraphIndexManager:
-    """Manages graph indexes for optimized query performance (REQ-SCL-3)."""
-
-    # Core indexes for common query patterns
-    CORE_INDEXES = [
-        # Node lookups by qualified name
-        IndexDefinition("Function", "qualified_name"),
-        IndexDefinition("Method", "qualified_name"),
-        IndexDefinition("Class", "qualified_name"),
-        IndexDefinition("Module", "qualified_name"),
-        IndexDefinition("Package", "qualified_name"),
-
-        # Node lookups by name (for search)
-        IndexDefinition("Function", "name", "HASH"),
-        IndexDefinition("Method", "name", "HASH"),
-        IndexDefinition("Class", "name", "HASH"),
-
-        # File and path lookups
-        IndexDefinition("File", "path"),
-        IndexDefinition("Module", "path"),
-        IndexDefinition("Folder", "path"),
-
-        # Test-related indexes
-        IndexDefinition("TestCase", "name"),
-        IndexDefinition("TestSuite", "qualified_name"),
-        IndexDefinition("BDDFeature", "name"),
-        IndexDefinition("BDDScenario", "name"),
-
-        # C-specific indexes
-        IndexDefinition("Macro", "name"),
-        IndexDefinition("Struct", "name"),
-        IndexDefinition("GlobalVariable", "name"),
-        IndexDefinition("Pointer", "qualified_name"),
-
-        # Performance indexes for relationships
-        IndexDefinition("Project", "name"),  # Root traversal
-        IndexDefinition("ExternalPackage", "name"),  # Dependency queries
-    ]
+    """Manages graph indexes for optimized query performance."""
 
     def __init__(self, ingestor: MemgraphIngestor):
         self.ingestor = ingestor
-        self.existing_indexes: set[str] = set()
-        self._fetch_existing_indexes()
 
-    def _fetch_existing_indexes(self) -> None:
-        """Fetch existing indexes from the database."""
+    def create_indexes(self) -> None:
+        """Create all necessary indexes for the knowledge graph."""
+        logger.info("Creating graph indexes for optimized query performance...")
+        
+        # Node label indexes
+        self._create_node_indexes()
+        
+        # Relationship type indexes
+        self._create_relationship_indexes()
+        
+        # Full-text search indexes
+        self._create_text_indexes()
+        
+        logger.info("Graph indexes created successfully")
+
+    def _create_node_indexes(self) -> None:
+        """Create indexes on node labels and properties."""
+        # File nodes
+        self._create_index("File", "path")
+        self._create_index("File", "name")
+        self._create_index("File", "language")
+        
+        # Code structure nodes
+        self._create_index("Function", "qualified_name")
+        self._create_index("Function", "name")
+        self._create_index("Class", "qualified_name")
+        self._create_index("Class", "name")
+        self._create_index("Method", "qualified_name")
+        self._create_index("Method", "name")
+        
+        # Module and package nodes
+        self._create_index("Module", "qualified_name")
+        self._create_index("Package", "qualified_name")
+        
+        # Test nodes
+        self._create_index("TestCase", "qualified_name")
+        self._create_index("TestCase", "name")
+        self._create_index("TestFunction", "qualified_name")
+        self._create_index("TestFunction", "name")
+        self._create_index("TestScenario", "name")
+        
+        # C-specific nodes
+        self._create_index("Struct", "qualified_name")
+        self._create_index("Struct", "name")
+        self._create_index("Macro", "name")
+        self._create_index("FunctionPointer", "name")
+        self._create_index("Typedef", "name")
+        self._create_index("Union", "name")
+        self._create_index("Enum", "name")
+        
+        # Import nodes
+        self._create_index("Import", "module")
+        
+        # Version control nodes
+        self._create_index("Commit", "hash")
+        self._create_index("Contributor", "email")
+
+    def _create_relationship_indexes(self) -> None:
+        """Create indexes on relationship types."""
+        # This is more for documentation - Memgraph automatically indexes relationship types
+        relationship_types = [
+            "HAS_FILE",
+            "CONTAINS",
+            "IMPORTS",
+            "CALLS",
+            "INHERITS_FROM",
+            "IMPLEMENTS",
+            "OVERRIDES",
+            "RETURNS",
+            "USES_TYPE",
+            "TESTS",
+            "COVERS",
+            "ASSERTS",
+            "FLOWS_TO",
+            "MODIFIES",
+            "POINTS_TO",
+            "ASSIGNS_FP",
+            "INVOKES_FP",
+            "EXPANDS_TO",
+            "INCLUDES",
+            "LOCKS",
+            "UNLOCKS",
+        ]
+        
+        logger.debug(f"Relationship types to be indexed: {relationship_types}")
+
+    def _create_text_indexes(self) -> None:
+        """Create full-text search indexes."""
+        # Create text indexes for searchable content
+        text_index_configs = [
+            ("Function", ["name", "docstring"]),
+            ("Class", ["name", "docstring"]),
+            ("Module", ["qualified_name", "docstring"]),
+            ("File", ["path", "name"]),
+            ("TestScenario", ["name", "description"]),
+            ("Commit", ["message"]),
+        ]
+        
+        for label, properties in text_index_configs:
+            self._create_text_index(label, properties)
+
+    def _create_index(self, label: str, property_name: str) -> None:
+        """Create a single property index."""
         try:
-            # For Memgraph, use SHOW INDEX INFO
-            result = self.ingestor.execute_query("SHOW INDEX INFO")
-            for record in result:
-                if 'index_name' in record:
-                    self.existing_indexes.add(record['index_name'])
+            query = f"CREATE INDEX ON :{label}({property_name})"
+            self.ingestor.execute_write(query)
+            logger.debug(f"Created index on {label}.{property_name}")
         except Exception as e:
-            logger.warning(f"Could not fetch existing indexes: {e}")
-
-    def create_indexes(self, additional_indexes: list[IndexDefinition] | None = None) -> None:
-        """Create all necessary indexes for optimal performance."""
-        indexes_to_create = self.CORE_INDEXES.copy()
-        if additional_indexes:
-            indexes_to_create.extend(additional_indexes)
-
-        created_count = 0
-        for index_def in indexes_to_create:
-            if self._create_index(index_def):
-                created_count += 1
-
-        logger.info(f"Created {created_count} new indexes (total: {len(self.existing_indexes)})")
-
-    def _create_index(self, index_def: IndexDefinition) -> bool:
-        """Create a single index."""
-        index_name = index_def.get_name()
-
-        if index_name in self.existing_indexes:
-            logger.debug(f"Index {index_name} already exists")
-            return False
-
-        try:
-            # Memgraph syntax for creating indexes
-            query = f"CREATE INDEX ON :{index_def.label}({index_def.property})"
-
-            start_time = time.time()
-            self.ingestor.execute_query(query)
-            elapsed = time.time() - start_time
-
-            self.existing_indexes.add(index_name)
-            logger.info(f"Created index {index_name} in {elapsed:.2f}s")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to create index {index_name}: {e}")
-            return False
-
-    def analyze_query_performance(self, query: str) -> QueryStats:
-        """Analyze query performance and suggest optimizations."""
-        # Execute query with profiling
-        profile_query = f"PROFILE {query}"
-
-        start_time = time.time()
-        try:
-            result = self.ingestor.execute_query(profile_query)
-            execution_time = time.time() - start_time
-
-            # Extract statistics from profile
-            # This is simplified - actual implementation would parse the profile
-            nodes_accessed = len(list(result))
-
-            return QueryStats(
-                query=query,
-                execution_time=execution_time,
-                nodes_accessed=nodes_accessed,
-                cache_hit=False
-            )
-        except Exception as e:
-            logger.error(f"Failed to profile query: {e}")
-            return QueryStats(query=query, execution_time=-1, nodes_accessed=-1)
-
-    def get_optimization_hints(self, stats: QueryStats) -> list[str]:
-        """Get optimization hints based on query statistics."""
-        hints = []
-
-        if stats.execution_time > 1.0:
-            hints.append("Query is slow (>1s). Consider adding indexes on filtered properties.")
-
-        if stats.nodes_accessed > 10000:
-            hints.append("Query accesses many nodes. Consider using LIMIT or more specific filters.")
-
-        if "qualified_name" in stats.query and "Function" in stats.query:
-            hints.append("Use indexed lookup: MATCH (f:Function {qualified_name: $qn}) for direct access")
-
-        if not any(idx in stats.query for idx in ["qualified_name", "path", "name"]):
-            hints.append("Query doesn't use indexed properties. Consider filtering by indexed fields.")
-
-        return hints
-
-    def drop_index(self, label: str, property: str) -> bool:
-        """Drop an index."""
-        try:
-            query = f"DROP INDEX ON :{label}({property})"
-            self.ingestor.execute_query(query)
-
-            index_name = f"idx_{label.lower()}_{property}"
-            self.existing_indexes.discard(index_name)
-
-            logger.info(f"Dropped index on {label}.{property}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to drop index: {e}")
-            return False
-
-    def get_index_statistics(self) -> dict[str, Any]:
-        """Get statistics about existing indexes."""
-        stats = {
-            "total_indexes": len(self.existing_indexes),
-            "indexes": list(self.existing_indexes),
-            "coverage": self._calculate_index_coverage()
-        }
-        return stats
-
-    def _calculate_index_coverage(self) -> dict[str, float]:
-        """Calculate what percentage of each label's nodes are covered by indexes."""
-        coverage = {}
-
-        # Get node counts by label
-        try:
-            labels_query = "MATCH (n) RETURN labels(n)[0] as label, count(n) as count"
-            result = self.ingestor.execute_query(labels_query)
-
-            for record in result:
-                label = record.get('label')
-                if label:
-                    # Check if this label has any indexes
-                    has_index = any(
-                        idx.startswith(f"idx_{label.lower()}_")
-                        for idx in self.existing_indexes
-                    )
-                    coverage[label] = 100.0 if has_index else 0.0
-
-        except Exception as e:
-            logger.error(f"Failed to calculate index coverage: {e}")
-
-        return coverage
-
-
-class QueryCache:
-    """Simple in-memory cache for query results."""
-
-    def __init__(self, max_size: int = 1000, ttl_seconds: int = 300):
-        self.max_size = max_size
-        self.ttl_seconds = ttl_seconds
-        self.cache: dict[str, tuple[Any, float]] = {}
-        self.access_count: dict[str, int] = {}
-
-    def get(self, key: str) -> Any | None:
-        """Get value from cache."""
-        if key in self.cache:
-            value, timestamp = self.cache[key]
-            if time.time() - timestamp < self.ttl_seconds:
-                self.access_count[key] = self.access_count.get(key, 0) + 1
-                return value
+            # Index might already exist
+            if "already defined" in str(e) or "already exists" in str(e):
+                logger.debug(f"Index on {label}.{property_name} already exists")
             else:
-                # Expired
-                del self.cache[key]
-        return None
+                logger.warning(f"Failed to create index on {label}.{property_name}: {e}")
 
-    def set(self, key: str, value: Any) -> None:
-        """Set value in cache."""
-        # Evict least recently used if at capacity
-        if len(self.cache) >= self.max_size:
-            self._evict_lru()
+    def _create_text_index(self, label: str, properties: list[str]) -> None:
+        """Create a text search index."""
+        try:
+            # Memgraph doesn't support full-text indexes in the same way as Neo4j
+            # Instead, we create regular indexes on text properties
+            for prop in properties:
+                self._create_index(label, prop)
+        except Exception as e:
+            logger.warning(f"Failed to create text index on {label}: {e}")
 
-        self.cache[key] = (value, time.time())
-        self.access_count[key] = 0
+    def drop_all_indexes(self) -> None:
+        """Drop all indexes (use with caution)."""
+        try:
+            # Get all existing indexes
+            result = self.ingestor.fetch_all("SHOW INDEX INFO")
+            
+            for record in result:
+                index_name = record.get("index_name")
+                if index_name:
+                    self.ingestor.execute_write(f"DROP INDEX {index_name}")
+                    logger.debug(f"Dropped index: {index_name}")
+                    
+            logger.info("All indexes dropped successfully")
+        except Exception as e:
+            logger.error(f"Failed to drop indexes: {e}")
 
-    def _evict_lru(self) -> None:
-        """Evict least recently used entry."""
-        if not self.cache:
-            return
+    def get_index_stats(self) -> list[dict[str, Any]]:
+        """Get statistics about existing indexes."""
+        try:
+            result = self.ingestor.fetch_all("SHOW INDEX INFO")
+            stats = []
+            
+            for record in result:
+                stats.append({
+                    "name": record.get("index_name"),
+                    "label": record.get("label"),
+                    "property": record.get("property"),
+                    "type": record.get("index_type", "btree"),
+                })
+                
+            return stats
+        except Exception as e:
+            logger.error(f"Failed to get index stats: {e}")
+            return []
 
-        # Find least accessed key
-        lru_key = min(self.access_count.keys(), key=lambda k: self.access_count.get(k, 0))
-        del self.cache[lru_key]
-        del self.access_count[lru_key]
+    def analyze_query_performance(self, cypher_query: str) -> dict[str, Any]:
+        """Analyze the performance of a Cypher query."""
+        try:
+            # Use EXPLAIN to get the query plan
+            explain_query = f"EXPLAIN {cypher_query}"
+            result = self.ingestor.fetch_all(explain_query)
+            
+            # Extract query plan information
+            plan_info = {
+                "query": cypher_query,
+                "uses_indexes": False,
+                "estimated_rows": 0,
+                "operators": [],
+            }
+            
+            for record in result:
+                operator = record.get("operator", "")
+                if "index" in operator.lower():
+                    plan_info["uses_indexes"] = True
+                plan_info["operators"].append(operator)
+                
+            return plan_info
+        except Exception as e:
+            logger.error(f"Failed to analyze query: {e}")
+            return {"error": str(e)}
 
-    def clear(self) -> None:
-        """Clear the cache."""
-        self.cache.clear()
-        self.access_count.clear()
-
-    def get_stats(self) -> dict[str, Any]:
-        """Get cache statistics."""
-        total_accesses = sum(self.access_count.values())
-        hit_rate = total_accesses / max(1, total_accesses + len(self.cache)) * 100
-
-        return {
-            "size": len(self.cache),
-            "total_accesses": total_accesses,
-            "hit_rate": hit_rate,
-            "most_accessed": sorted(
-                self.access_count.items(),
-                key=lambda x: x[1],
-                reverse=True
-            )[:10]
-        }
-
-
-class OptimizedQuerier:
-    """Provides optimized query methods using indexes and caching."""
-
-    def __init__(self, ingestor: MemgraphIngestor, cache_enabled: bool = True):
-        self.ingestor = ingestor
-        self.cache = QueryCache() if cache_enabled else None
-
-    def find_function_by_name(self, name: str, use_cache: bool = True) -> list[dict[str, Any]]:
-        """Find functions by name using index."""
-        cache_key = f"func_name:{name}"
-
-        if use_cache and self.cache:
-            cached = self.cache.get(cache_key)
-            if cached is not None:
-                return cached
-
-        # Use indexed query
-        query = """
-        MATCH (f:Function {name: $name})
-        RETURN f.qualified_name as qn, f.name as name,
-               f.start_line as start_line, f.end_line as end_line
-        """
-
-        result = list(self.ingestor.execute_query(query, {"name": name}))
-
-        if use_cache and self.cache:
-            self.cache.set(cache_key, result)
-
-        return result
-
-    def find_by_qualified_name(self, qn: str, label: str = None) -> dict[str, Any] | None:
-        """Find node by qualified name using index."""
-        cache_key = f"qn:{label}:{qn}" if label else f"qn:any:{qn}"
-
-        if self.cache:
-            cached = self.cache.get(cache_key)
-            if cached is not None:
-                return cached
-
-        if label:
-            query = f"MATCH (n:{label} {{qualified_name: $qn}}) RETURN n"
-        else:
-            query = "MATCH (n {qualified_name: $qn}) RETURN n"
-
-        result = list(self.ingestor.execute_query(query, {"qn": qn}))
-        value = result[0]['n'] if result else None
-
-        if self.cache and value:
-            self.cache.set(cache_key, value)
-
-        return value
-
-    def find_module_by_path(self, path: str) -> dict[str, Any] | None:
-        """Find module by file path using index."""
-        query = "MATCH (m:Module {path: $path}) RETURN m"
-        result = list(self.ingestor.execute_query(query, {"path": path}))
-        return result[0]['m'] if result else None
-
-    def get_call_hierarchy(self, function_qn: str, depth: int = 3) -> dict[str, Any]:
-        """Get call hierarchy for a function with depth limit."""
-        cache_key = f"call_hierarchy:{function_qn}:{depth}"
-
-        if self.cache:
-            cached = self.cache.get(cache_key)
-            if cached is not None:
-                return cached
-
-        query = f"""
-        MATCH path = (f {{qualified_name: $qn}})-[:CALLS*1..{depth}]->(called)
-        WITH f, called, length(path) as depth
-        RETURN f.qualified_name as root,
-               collect(DISTINCT {{
-                   name: called.qualified_name,
-                   depth: depth,
-                   type: labels(called)[0]
-               }}) as calls
-        """
-
-        result = list(self.ingestor.execute_query(query, {"qn": function_qn}))
-        hierarchy = result[0] if result else {"root": function_qn, "calls": []}
-
-        if self.cache:
-            self.cache.set(cache_key, hierarchy)
-
-        return hierarchy
+    def optimize_for_common_queries(self) -> None:
+        """Create indexes optimized for common query patterns."""
+        logger.info("Creating indexes for common query patterns...")
+        
+        # Pattern 1: Finding functions by name across the codebase
+        self._create_index("Function", "name")
+        self._create_index("Method", "name")
+        
+        # Pattern 2: Finding all code in a specific file
+        self._create_index("File", "path")
+        
+        # Pattern 3: Finding implementations of an interface/class
+        self._create_index("Class", "name")
+        self._create_index("Interface", "name")
+        
+        # Pattern 4: Finding test coverage
+        self._create_index("TestCase", "qualified_name")
+        self._create_index("TestFunction", "qualified_name")
+        
+        # Pattern 5: Import analysis
+        self._create_index("Import", "module")
+        
+        # Pattern 6: Finding code by qualified name
+        self._create_index("Function", "qualified_name")
+        self._create_index("Class", "qualified_name")
+        self._create_index("Method", "qualified_name")
+        
+        logger.info("Common query pattern indexes created")
