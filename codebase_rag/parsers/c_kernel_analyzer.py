@@ -347,18 +347,31 @@ class CKernelAnalyzer:
 
     def _analyze_lock_declaration(self, node: Node) -> None:
         """Analyze declarations for concurrency primitives."""
-        # Get type from declaration
+        # Get type from declaration - handle both type_identifier and struct_specifier
         type_text = ""
+        type_parts = []
+        
         for child in node.children:
             if child.type in ["primitive_type", "type_identifier", "struct_specifier"]:
-                type_text = self.content[child.start_byte : child.end_byte]
-                break
+                part_text = self.content[child.start_byte : child.end_byte]
+                type_parts.append(part_text)
+                
+        # Combine all type parts
+        type_text = " ".join(type_parts)
 
         # Check if it's a lock type
         lock_type = None
         for ltype, info in self.LOCK_PATTERNS.items():
-            if any(t in type_text for t in info["types"]):
-                lock_type = ltype
+            for lock_type_pattern in info["types"]:
+                # Check for exact match (for simple types like spinlock_t)
+                if lock_type_pattern == type_text:
+                    lock_type = ltype
+                    break
+                # Check for pattern in text (for struct types)
+                if lock_type_pattern in type_text:
+                    lock_type = ltype
+                    break
+            if lock_type:
                 break
 
         if not lock_type:
@@ -366,7 +379,7 @@ class CKernelAnalyzer:
 
         # Extract variable name
         for child in node.named_children:
-            if child.type in ["init_declarator", "declarator"]:
+            if child.type in ["init_declarator", "declarator", "identifier"]:
                 var_name = self._extract_variable_name(child)
                 if var_name:
                     # Check if it's static/global
@@ -423,6 +436,10 @@ class CKernelAnalyzer:
                         elif op_type == "unlock" and context:
                             self.kernel_relationships.append(
                                 (context, "UNLOCKS", lock_type, lock_var)
+                            )
+                        elif op_type == "trylock" and context:
+                            self.kernel_relationships.append(
+                                (context, "TRIES_LOCK", lock_type, lock_var)
                             )
                 break
 
