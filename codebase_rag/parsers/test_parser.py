@@ -338,6 +338,24 @@ class TestParser:
                         if ident and ident.type == "identifier":
                             return ident.text.decode("utf-8")
 
+        # For Java method declarations, the identifier is a direct child
+        if self.language == "java" and node.type == "method_declaration":
+            for child in node.children:
+                if child.type == "identifier":
+                    return child.text.decode("utf-8")
+
+        # For Rust function items, look for identifier after visibility
+        if self.language == "rust" and node.type == "function_item":
+            for child in node.children:
+                if child.type == "identifier":
+                    return child.text.decode("utf-8")
+
+        # For Go function declarations
+        if self.language == "go" and node.type == "function_declaration":
+            for child in node.children:
+                if child.type == "identifier":
+                    return child.text.decode("utf-8")
+
         # For some languages, the identifier might be elsewhere
         for child in node.named_children:
             if child.type == "identifier":
@@ -347,18 +365,281 @@ class TestParser:
 
     def _parse_java_tests(self, content: str, framework_info: TestFrameworkInfo) -> None:
         """Parse Java test files (JUnit/TestNG)."""
-        self.parser.parse(bytes(content, "utf8"))
+        tree = self.parser.parse(bytes(content, "utf8"))
 
-        # Similar to Python but look for @Test annotations
-        # This would need Java-specific parsing logic
-        pass
+        # Find test classes
+        class_query = self.queries.get("classes")
+        if class_query:
+            class_captures = class_query.captures(tree.root_node)
+            for class_node in class_captures.get("class", []):
+                class_name = self._get_node_name(class_node)
+                if class_name and ("Test" in class_name or class_name.endswith("Tests")):
+                    test_suite = TestNode(
+                        node_type="test_suite",
+                        name=class_name,
+                        file_path=self.current_file,
+                        start_line=class_node.start_point[0] + 1,
+                        end_line=class_node.end_point[0] + 1,
+                        properties={
+                            "framework": framework_info.framework,
+                        }
+                    )
+                    self.nodes.append(test_suite)
+
+                    # Find test methods with @Test annotation
+                    self._extract_java_test_methods(class_node, class_name, framework_info)
+
+        # Find test methods outside classes (rare but possible)
+        self._find_standalone_java_tests(tree.root_node, framework_info)
 
     def _parse_rust_tests(self, content: str, framework_info: TestFrameworkInfo) -> None:
         """Parse Rust test files."""
-        # Look for #[test] attributes
-        pass
+        tree = self.parser.parse(bytes(content, "utf8"))
+
+        # Find test modules (mod tests)
+        self._find_rust_test_modules(tree.root_node, framework_info)
+
+        # Find individual test functions with #[test] attribute
+        self._find_rust_test_functions(tree.root_node, framework_info)
 
     def _parse_go_tests(self, content: str, framework_info: TestFrameworkInfo) -> None:
         """Parse Go test files."""
-        # Look for Test* functions
-        pass
+        tree = self.parser.parse(bytes(content, "utf8"))
+
+        # Find test functions (func TestXxx and func BenchmarkXxx)
+        function_query = self.queries.get("functions")
+        if function_query:
+            function_captures = function_query.captures(tree.root_node)
+            for func_node in function_captures.get("function", []):
+                func_name = self._get_node_name(func_node)
+                if func_name and (func_name.startswith("Test") or func_name.startswith("Benchmark") or func_name.startswith("Example")):
+                    test_func = TestNode(
+                        node_type="test_function",
+                        name=func_name,
+                        file_path=self.current_file,
+                        start_line=func_node.start_point[0] + 1,
+                        end_line=func_node.end_point[0] + 1,
+                        properties={
+                            "framework": framework_info.framework,
+                            "test_type": "benchmark" if func_name.startswith("Benchmark") else "example" if func_name.startswith("Example") else "test",
+                        }
+                    )
+                    self.nodes.append(test_func)
+
+                    # For Ginkgo framework, look for Describe/It blocks
+                    if framework_info.framework == "ginkgo":
+                        self._parse_ginkgo_structure(func_node, framework_info)
+
+    def _extract_java_test_methods(self, class_node: Node, class_name: str, framework_info: TestFrameworkInfo) -> None:
+        """Extract test methods from a Java test class."""
+        # Walk through class body to find methods with @Test annotation
+        for child in class_node.named_children:
+            if child.type == "class_body":
+                for member in child.children:
+                    if member.type == "method_declaration":
+                        # Check for @Test annotation
+                        has_test_annotation = False
+                        for method_child in member.children:
+                            if method_child.type == "modifiers":
+                                for modifier in method_child.children:
+                                    if modifier.type == "marker_annotation" and modifier.text.decode("utf-8") == "@Test":
+                                        has_test_annotation = True
+                                        break
+
+                        if has_test_annotation:
+                            method_name = self._get_node_name(member)
+                            if method_name:
+                                test_case = TestNode(
+                                    node_type="test_case",
+                                    name=method_name,
+                                    file_path=self.current_file,
+                                    start_line=member.start_point[0] + 1,
+                                    end_line=member.end_point[0] + 1,
+                                    properties={
+                                        "framework": framework_info.framework,
+                                        "parent_suite": class_name,
+                                    }
+                                )
+                                self.nodes.append(test_case)
+
+                                # Create relationship
+                                self.relationships.append(
+                                    (class_name, "CONTAINS_TEST", "test_case", method_name)
+                                )
+
+    def _find_standalone_java_tests(self, node: Node, framework_info: TestFrameworkInfo) -> None:
+        """Find Java test methods that might be defined outside of classes."""
+        # This is uncommon in Java but handle it for completeness
+        if node.type == "method_declaration":
+            # Check for @Test annotation
+            for child in node.children:
+                if child.type == "modifiers":
+                    for modifier in child.children:
+                        if modifier.type == "marker_annotation" and "@Test" in modifier.text.decode("utf-8"):
+                            method_name = self._get_node_name(node)
+                            if method_name:
+                                test_func = TestNode(
+                                    node_type="test_function",
+                                    name=method_name,
+                                    file_path=self.current_file,
+                                    start_line=node.start_point[0] + 1,
+                                    end_line=node.end_point[0] + 1,
+                                    properties={
+                                        "framework": framework_info.framework,
+                                    }
+                                )
+                                self.nodes.append(test_func)
+
+        # Recurse to children
+        for child in node.named_children:
+            self._find_standalone_java_tests(child, framework_info)
+
+    def _find_rust_test_modules(self, node: Node, framework_info: TestFrameworkInfo) -> None:
+        """Find Rust test modules (mod tests)."""
+        if node.type == "mod_item":
+            # Check if it has #[cfg(test)] attribute
+            has_test_attribute = False
+            for child in node.named_children:
+                if child.type == "attribute_item":
+                    attr_text = child.text.decode("utf-8")
+                    if "#[cfg(test)]" in attr_text:
+                        has_test_attribute = True
+                        break
+
+            if has_test_attribute:
+                mod_name = self._get_node_name(node)
+                if mod_name:
+                    test_suite = TestNode(
+                        node_type="test_suite",
+                        name=mod_name,
+                        file_path=self.current_file,
+                        start_line=node.start_point[0] + 1,
+                        end_line=node.end_point[0] + 1,
+                        properties={
+                            "framework": framework_info.framework,
+                        }
+                    )
+                    self.nodes.append(test_suite)
+
+        # Recurse to children
+        for child in node.named_children:
+            self._find_rust_test_modules(child, framework_info)
+
+    def _find_rust_test_functions(self, node: Node, framework_info: TestFrameworkInfo, parent_suite: str | None = None) -> None:
+        """Find Rust test functions with #[test] attribute."""
+        if node.type == "function_item":
+            # Check for #[test] attribute
+            has_test_attribute = False
+            for child in node.named_children:
+                if child.type == "attribute_item":
+                    attr_text = child.text.decode("utf-8")
+                    if "#[test]" in attr_text:
+                        has_test_attribute = True
+                        break
+
+            if has_test_attribute:
+                func_name = self._get_node_name(node)
+                if func_name:
+                    test_func = TestNode(
+                        node_type="test_function" if not parent_suite else "test_case",
+                        name=func_name,
+                        file_path=self.current_file,
+                        start_line=node.start_point[0] + 1,
+                        end_line=node.end_point[0] + 1,
+                        properties={
+                            "framework": framework_info.framework,
+                        }
+                    )
+                    self.nodes.append(test_func)
+
+                    if parent_suite:
+                        self.relationships.append(
+                            (parent_suite, "CONTAINS_TEST", "test_case", func_name)
+                        )
+
+        # If this is a test module, track it as parent
+        if node.type == "mod_item" and parent_suite is None:
+            for child in node.named_children:
+                if child.type == "attribute_item" and "#[cfg(test)]" in child.text.decode("utf-8"):
+                    mod_name = self._get_node_name(node)
+                    if mod_name:
+                        parent_suite = mod_name
+                    break
+
+        # Recurse to children
+        for child in node.named_children:
+            self._find_rust_test_functions(child, framework_info, parent_suite)
+
+    def _parse_ginkgo_structure(self, node: Node, framework_info: TestFrameworkInfo) -> None:
+        """Parse Ginkgo BDD-style test structure in Go."""
+        # Look for Describe/Context/It blocks within the test function
+        self._walk_ginkgo_tree(node, framework_info)
+
+    def _walk_ginkgo_tree(self, node: Node, framework_info: TestFrameworkInfo, parent_suite: str | None = None) -> None:
+        """Walk Go AST to find Ginkgo test constructs."""
+        if node.type == "call_expression":
+            function_node = node.child_by_field_name("function")
+            if function_node and function_node.type == "identifier":
+                func_name = function_node.text.decode("utf-8")
+
+                # Check for Describe/Context blocks
+                if func_name in ["Describe", "Context"]:
+                    args = node.child_by_field_name("arguments")
+                    if args and args.named_children:
+                        # Get suite name from first argument
+                        name_arg = args.named_children[0]
+                        if name_arg.type == "interpreted_string_literal":
+                            suite_name = name_arg.text.decode("utf-8").strip('"')
+
+                            test_suite = TestNode(
+                                node_type="test_suite",
+                                name=suite_name,
+                                file_path=self.current_file,
+                                start_line=node.start_point[0] + 1,
+                                end_line=node.end_point[0] + 1,
+                                properties={
+                                    "framework": framework_info.framework,
+                                    "ginkgo_type": func_name.lower(),
+                                }
+                            )
+                            self.nodes.append(test_suite)
+
+                            if parent_suite:
+                                self.relationships.append(
+                                    (parent_suite, "CONTAINS_SUITE", "test_suite", suite_name)
+                                )
+
+                            # Process callback for nested tests
+                            if len(args.named_children) > 1:
+                                callback = args.named_children[1]
+                                self._walk_ginkgo_tree(callback, framework_info, suite_name)
+
+                # Check for It blocks
+                elif func_name == "It":
+                    args = node.child_by_field_name("arguments")
+                    if args and args.named_children:
+                        # Get test name from first argument
+                        name_arg = args.named_children[0]
+                        if name_arg.type == "interpreted_string_literal":
+                            test_name = name_arg.text.decode("utf-8").strip('"')
+
+                            test_case = TestNode(
+                                node_type="test_case",
+                                name=test_name,
+                                file_path=self.current_file,
+                                start_line=node.start_point[0] + 1,
+                                end_line=node.end_point[0] + 1,
+                                properties={
+                                    "framework": framework_info.framework,
+                                }
+                            )
+                            self.nodes.append(test_case)
+
+                            if parent_suite:
+                                self.relationships.append(
+                                    (parent_suite, "CONTAINS_TEST", "test_case", test_name)
+                                )
+
+        # Recurse to children
+        for child in node.named_children:
+            self._walk_ginkgo_tree(child, framework_info, parent_suite)

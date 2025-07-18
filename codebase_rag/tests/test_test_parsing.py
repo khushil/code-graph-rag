@@ -4,7 +4,7 @@ import pytest
 
 from codebase_rag.parser_loader import load_parsers
 from codebase_rag.parsers.bdd_parser import BDDParser
-from codebase_rag.parsers.test_detector import TestDetector
+from codebase_rag.parsers.test_detector import TestDetector, TestFrameworkInfo
 from codebase_rag.parsers.test_parser import TestParser
 
 
@@ -201,3 +201,112 @@ describe('Example', () => {
         # Match step to definition
         matched = parser.match_step_to_definition(step, step_defs)
         assert matched == "enter_number"
+
+    def test_java_test_parsing(self, parsers_and_queries):
+        """Test parsing Java test files."""
+        parsers, queries = parsers_and_queries
+        if "java" not in parsers:
+            pytest.skip("Java parser not available")
+            
+        test_parser = TestParser(parsers["java"], queries["java"], "java")
+
+        # Read test file
+        test_file = Path(__file__).parent / "fixtures" / "TestCalculator.java"
+        content = test_file.read_text()
+
+        nodes, relationships = test_parser.parse_test_file(str(test_file), content)
+
+        # Check nodes
+        suite_names = [n.name for n in nodes if n.node_type == "test_suite"]
+        assert "TestCalculator" in suite_names
+        assert "CalculatorIntegrationTests" in suite_names
+
+        test_names = [n.name for n in nodes if n.node_type == "test_case"]
+        assert "testAddPositiveNumbers" in test_names
+        assert "testDivision" in test_names
+        assert "testComplexOperations" in test_names
+
+        # Check relationships
+        rel_types = set(r[1] for r in relationships)
+        assert "CONTAINS_TEST" in rel_types
+
+    def test_rust_test_parsing(self, parsers_and_queries):
+        """Test parsing Rust test files."""
+        parsers, queries = parsers_and_queries
+        if "rust" not in parsers:
+            pytest.skip("Rust parser not available")
+            
+        test_parser = TestParser(parsers["rust"], queries["rust"], "rust")
+
+        # Read test file
+        test_file = Path(__file__).parent / "fixtures" / "test_calculator.rs"
+        content = test_file.read_text()
+
+        nodes, relationships = test_parser.parse_test_file(str(test_file), content)
+
+        # Check test modules
+        suite_names = [n.name for n in nodes if n.node_type == "test_suite"]
+        assert "tests" in suite_names
+        assert "integration_tests" in suite_names
+
+        # Check test functions
+        test_names = [n.name for n in nodes if n.node_type in ["test_function", "test_case"]]
+        assert "test_add_positive_numbers" in test_names
+        assert "test_divide_by_zero" in test_names
+        assert "standalone_test_function" in test_names
+
+    def test_go_test_parsing(self, parsers_and_queries):
+        """Test parsing Go test files."""
+        parsers, queries = parsers_and_queries
+        if "go" not in parsers:
+            pytest.skip("Go parser not available")
+            
+        test_parser = TestParser(parsers["go"], queries["go"], "go")
+
+        # Read standard Go test file
+        test_file = Path(__file__).parent / "fixtures" / "calculator_test.go"
+        content = test_file.read_text()
+
+        nodes, relationships = test_parser.parse_test_file(str(test_file), content)
+
+        # Check test functions
+        test_names = [n.name for n in nodes if n.node_type == "test_function"]
+        assert "TestAdd" in test_names
+        assert "TestSubtract" in test_names
+        assert "TestDivide" in test_names
+        assert "BenchmarkAdd" in test_names
+
+    def test_ginkgo_test_parsing(self, parsers_and_queries):
+        """Test parsing Go Ginkgo BDD-style test files."""
+        parsers, queries = parsers_and_queries
+        if "go" not in parsers:
+            pytest.skip("Go parser not available")
+            
+        test_parser = TestParser(parsers["go"], queries["go"], "go")
+
+        # Read Ginkgo test file
+        test_file = Path(__file__).parent / "fixtures" / "calculator_ginkgo_test.go"
+        content = test_file.read_text()
+        
+        # Manually trigger Ginkgo detection by checking the content
+        if "github.com/onsi/ginkgo" in content:
+            # The detector should pick this up, but let's ensure it works
+            nodes, relationships = test_parser.parse_test_file(str(test_file), content)
+        else:
+            # If Ginkgo isn't detected, skip the test
+            pytest.skip("Ginkgo framework not detected in test file")
+
+        # Should find the main test function
+        test_funcs = [n for n in nodes if n.node_type == "test_function" and n.name == "TestCalculator"]
+        assert len(test_funcs) > 0
+
+        # Check for Describe/Context blocks (test suites)
+        suite_names = [n.name for n in nodes if n.node_type == "test_suite"]
+        assert "Calculator" in suite_names
+        assert "Basic arithmetic operations" in suite_names
+        assert "Addition" in suite_names
+
+        # Check for It blocks (test cases)
+        test_names = [n.name for n in nodes if n.node_type == "test_case"]
+        assert "should add positive numbers correctly" in test_names
+        assert "should return error on divide by zero" in test_names

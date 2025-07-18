@@ -136,7 +136,7 @@ class TestDetector:
         },
         "go": {
             "testing": {
-                "imports": [r"import\s+.*\"testing\""],
+                "imports": [r"import\s+.*\"testing\"", r"\"testing\"", r"import\s*\(\s*[^)]*\"testing\""],
                 "decorators": [],
                 "functions": [r"func\s+Test", r"func\s+Benchmark"],
                 "assertions": [r"t\.Error", r"t\.Fail", r"t\.Fatal"],
