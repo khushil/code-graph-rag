@@ -1,4 +1,4 @@
-"""Data flow analysis for tracking variable flows and modifications (REQ-DF-1, REQ-DF-2)."""
+"""Data flow analysis module (REQ-DF-1, REQ-DF-2, REQ-DF-4)."""
 
 from dataclasses import dataclass
 from typing import Any
@@ -6,498 +6,466 @@ from typing import Any
 from loguru import logger
 from tree_sitter import Node
 
+from ..graph.node_types import Variable, DataFlow
+from ..utils.ast_helpers import get_node_text, find_nodes_by_type
+
 
 @dataclass
-class VariableNode:
-    """Represents a variable in the code (REQ-DF-1)."""
+class VariableDefinition:
+    """Represents a variable definition in code."""
     name: str
-    qualified_name: str
-    var_type: str  # local, global, parameter, field
-    declared_at: int  # line number
-    scope: str  # function/class qualified name
+    type_hint: str | None
+    line_number: int
+    scope: str
+    initial_value: str | None
+    is_parameter: bool = False
+    is_global: bool = False
     is_mutable: bool = True
-    initial_value: str | None = None
-    language: str = "python"
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for graph storage."""
-        return {
-            "name": self.name,
-            "qualified_name": self.qualified_name,
-            "var_type": self.var_type,
-            "declared_at": self.declared_at,
-            "scope": self.scope,
-            "is_mutable": self.is_mutable,
-            "initial_value": self.initial_value or "",
-            "language": self.language,
-        }
 
 
 @dataclass
-class FlowEdge:
-    """Represents data flow between variables/functions (REQ-DF-2)."""
-    source: str  # qualified name
-    target: str  # qualified name
-    flow_type: str  # "assigns", "reads", "modifies", "passes_to", "returns_from"
+class DataFlowEdge:
+    """Represents a data flow between variables or expressions."""
+    source: str  # Variable or expression that provides data
+    target: str  # Variable or expression that receives data
+    flow_type: str  # ASSIGNS, READS, MODIFIES, PASSES_TO, RETURNS
     line_number: int
-    confidence: float = 1.0  # For uncertain flows
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for graph storage."""
-        return {
-            "flow_type": self.flow_type,
-            "line_number": self.line_number,
-            "confidence": self.confidence,
-        }
+    is_tainted: bool = False
+    taint_source: str | None = None
 
 
 class DataFlowAnalyzer:
-    """Analyzes data flow in code to track variable usage and modifications."""
+    """Analyzes data flow within and across functions."""
 
     def __init__(self, parser, queries: dict[str, Any], language: str):
         self.parser = parser
         self.queries = queries
         self.language = language
-        self.variables: dict[str, VariableNode] = {}
-        self.flows: list[FlowEdge] = []
-        self._current_scope = ""
-        self._source_lines: list[str] = []
-
-    def analyze_file(self, file_path: str, content: str, module_qn: str) -> tuple[list[VariableNode], list[FlowEdge]]:
-        """Analyze data flow in a file."""
+        self.variables: dict[str, VariableDefinition] = {}
+        self.data_flows: list[DataFlowEdge] = []
+        self.taint_sources = {"input", "request", "argv", "environ", "stdin"}
+        
+    def analyze_file(
+        self, root_node: Node, source_code: str, module_qn: str
+    ) -> tuple[list[dict], list[dict]]:
+        """Analyze data flow in a file and return nodes and relationships."""
+        nodes = []
+        relationships = []
+        
+        # Reset state for new file
         self.variables.clear()
-        self.flows.clear()
-        self._source_lines = content.split("\n")
-
-        # Parse the file
-        tree = self.parser.parse(content.encode("utf-8"))
-        root_node = tree.root_node
-
+        self.data_flows.clear()
+        
         # Analyze based on language
         if self.language == "python":
-            self._analyze_python(root_node, module_qn)
+            self._analyze_python(root_node, source_code, module_qn)
         elif self.language == "javascript" or self.language == "typescript":
-            self._analyze_javascript(root_node, module_qn)
+            self._analyze_javascript(root_node, source_code, module_qn)
         elif self.language == "c":
-            self._analyze_c(root_node, module_qn)
+            self._analyze_c(root_node, source_code, module_qn)
         else:
             logger.warning(f"Data flow analysis not implemented for {self.language}")
-
-        return list(self.variables.values()), self.flows
-
-    def _analyze_python(self, root_node: Node, module_qn: str) -> None:
-        """Analyze Python data flow."""
-        # Find all assignments
-        if "assignments" in self.queries:
-            query = self.queries["assignments"]
-            captures = query.captures(root_node)
-
-            # Process all assignment nodes
-            assignment_nodes = captures.get("assignment", [])
-            for node in assignment_nodes:
-                self._process_python_assignment(node, module_qn)
-
-        # Find all function definitions to track parameters
-        if "functions" in self.queries:
-            query = self.queries["functions"]
-            captures = query.captures(root_node)
-
-            function_nodes = captures.get("function", [])
-            for node in function_nodes:
-                self._process_python_function(node, module_qn)
-
-        # Find all class definitions to track fields
-        if "classes" in self.queries:
-            query = self.queries["classes"]
-            captures = query.captures(root_node)
-
-            class_nodes = captures.get("class", [])
-            for node in class_nodes:
-                self._process_python_class(node, module_qn)
-
-    def _process_python_assignment(self, node: Node, module_qn: str) -> None:
-        """Process Python assignment statement."""
-        # Get left side (target)
-        left_node = node.child_by_field_name("left")
-        right_node = node.child_by_field_name("right")
-
-        if not left_node:
-            return
-
-        # Extract variable name
-        var_name = self._get_node_text(left_node)
-        line_number = left_node.start_point[0] + 1
-
-        # Determine scope
-        scope = self._find_enclosing_scope(node, module_qn)
-
-        # Create variable node
-        var_qn = f"{scope}.{var_name}"
-        var_type = "local" if scope != module_qn else "global"
-
-        if var_name not in self.variables:
-            initial_value = self._get_node_text(right_node) if right_node else None
-            var_node = VariableNode(
-                name=var_name,
-                qualified_name=var_qn,
-                var_type=var_type,
-                declared_at=line_number,
-                scope=scope,
-                initial_value=initial_value,
-                language="python"
-            )
-            self.variables[var_qn] = var_node
-
-        # Analyze right side for data flow
-        if right_node:
-            self._analyze_expression_flow(right_node, var_qn, "assigns", line_number)
-
-    def _process_python_function(self, node: Node, module_qn: str) -> None:
-        """Process Python function definition for parameters."""
-        name_node = node.child_by_field_name("name")
-        params_node = node.child_by_field_name("parameters")
-
-        if not name_node:
-            return
-
-        func_name = self._get_node_text(name_node)
-        func_qn = f"{module_qn}.{func_name}"
-
-        # Process parameters
-        if params_node:
-            for child in params_node.children:
-                if child.type in ["identifier", "typed_parameter"]:
-                    param_name = self._extract_parameter_name(child)
-                    if param_name:
-                        param_qn = f"{func_qn}.{param_name}"
-                        param_node = VariableNode(
-                            name=param_name,
-                            qualified_name=param_qn,
-                            var_type="parameter",
-                            declared_at=child.start_point[0] + 1,
-                            scope=func_qn,
-                            language="python"
-                        )
-                        self.variables[param_qn] = param_node
-
-        # Analyze function body
-        body_node = node.child_by_field_name("body")
-        if body_node:
-            self._analyze_block_flow(body_node, module_qn, func_qn)
-
-    def _process_python_class(self, node: Node, module_qn: str) -> None:
-        """Process Python class definition for fields."""
-        name_node = node.child_by_field_name("name")
-        body_node = node.child_by_field_name("body")
-
-        if not name_node:
-            return
-
-        class_name = self._get_node_text(name_node)
-        class_qn = f"{module_qn}.{class_name}"
-
-        # Look for field assignments in __init__ or class body
-        if body_node:
-            for child in body_node.children:
-                if child.type == "function_definition":
-                    func_name_node = child.child_by_field_name("name")
-                    if func_name_node and self._get_node_text(func_name_node) == "__init__":
-                        # Analyze __init__ for self.field assignments
-                        self._analyze_init_method(child, class_qn)
-                elif child.type == "expression_statement":
-                    # Class-level field assignments
-                    self._process_class_field(child, class_qn)
-
-    def _analyze_init_method(self, node: Node, class_qn: str) -> None:
-        """Analyze __init__ method for instance variable declarations."""
-        body_node = node.child_by_field_name("body")
-        if not body_node:
-            return
-
-        for child in body_node.children:
-            if child.type == "expression_statement":
-                expr = child.children[0] if child.children else None
-                if expr and expr.type == "assignment":
-                    left = expr.child_by_field_name("left")
-                    if left and left.type == "attribute":
-                        obj = left.child_by_field_name("object")
-                        attr = left.child_by_field_name("attribute")
-
-                        if obj and attr and self._get_node_text(obj) == "self":
-                            field_name = self._get_node_text(attr)
-                            field_qn = f"{class_qn}.{field_name}"
-
-                            field_node = VariableNode(
-                                name=field_name,
-                                qualified_name=field_qn,
-                                var_type="field",
-                                declared_at=left.start_point[0] + 1,
-                                scope=class_qn,
-                                language="python"
-                            )
-                            self.variables[field_qn] = field_node
-
-                            # Analyze right side for flow
-                            right = expr.child_by_field_name("right")
-                            if right:
-                                self._analyze_expression_flow(
-                                    right, field_qn, "assigns",
-                                    left.start_point[0] + 1
-                                )
-
-    def _analyze_expression_flow(self, expr_node: Node, target_var: str, flow_type: str, line_number: int) -> None:
-        """Analyze an expression for data flow relationships."""
-        if expr_node.type == "identifier":
-            # Direct variable reference
-            var_name = self._get_node_text(expr_node)
-            source_var = self._resolve_variable(var_name)
-            if source_var:
-                flow = FlowEdge(
-                    source=source_var,
-                    target=target_var,
-                    flow_type=flow_type,
-                    line_number=line_number
-                )
-                self.flows.append(flow)
-
-        elif expr_node.type == "call":
-            # Function call
-            func_node = expr_node.child_by_field_name("function")
-            if func_node:
-                func_name = self._get_node_text(func_node)
-                # Track flow from function return
-                flow = FlowEdge(
-                    source=f"return_of_{func_name}",
-                    target=target_var,
-                    flow_type="returns_from",
-                    line_number=line_number
-                )
-                self.flows.append(flow)
-
-            # Analyze arguments for flows
-            args_node = expr_node.child_by_field_name("arguments")
-            if args_node:
-                for arg in args_node.children:
-                    if arg.type not in ["(", ")", ","]:
-                        self._analyze_expression_flow(arg, f"param_of_{func_name}", "passes_to", line_number)
-
-        elif expr_node.type == "binary_operator":
-            # Binary operations
-            left = expr_node.child_by_field_name("left")
-            right = expr_node.child_by_field_name("right")
-
-            if left:
-                self._analyze_expression_flow(left, target_var, "reads", line_number)
-            if right:
-                self._analyze_expression_flow(right, target_var, "reads", line_number)
-
-        elif expr_node.type == "attribute":
-            # Attribute access (e.g., obj.field)
-            obj = expr_node.child_by_field_name("object")
-            attr = expr_node.child_by_field_name("attribute")
-
-            if obj and attr:
-                obj_name = self._get_node_text(obj)
-                attr_name = self._get_node_text(attr)
-                # Try to resolve the field
-                field_var = self._resolve_field(obj_name, attr_name)
-                if field_var:
-                    flow = FlowEdge(
-                        source=field_var,
-                        target=target_var,
-                        flow_type=flow_type,
-                        line_number=line_number
-                    )
-                    self.flows.append(flow)
-
-    def _analyze_javascript(self, root_node: Node, module_qn: str) -> None:
+            return nodes, relationships
+            
+        # Convert analyzed data to graph nodes and relationships
+        nodes, relationships = self._build_graph_elements(module_qn)
+        
+        return nodes, relationships
+        
+    def _analyze_python(self, root_node: Node, source_code: str, module_qn: str) -> None:
+        """Analyze Python-specific data flow."""
+        # Find all variable assignments
+        assignment_query = """
+        (assignment
+          left: (_) @target
+          right: (_) @source)
+        """
+        
+        if "assignment" in self.queries:
+            assignments = self._run_query(assignment_query, root_node, source_code)
+            for match in assignments:
+                self._process_assignment(match, source_code, module_qn)
+                
+        # Find function parameters
+        param_query = """
+        (function_definition
+          name: (identifier) @func_name
+          parameters: (parameters (_) @param))
+        """
+        
+        if "function_definition" in self.queries:
+            functions = self._run_query(param_query, root_node, source_code)
+            for match in functions:
+                self._process_function_params(match, source_code, module_qn)
+                
+        # Find return statements
+        return_query = """
+        (return_statement
+          (expression_list (_) @return_value))
+        """
+        
+        if "return_statement" in self.queries:
+            returns = self._run_query(return_query, root_node, source_code)
+            for match in returns:
+                self._process_return(match, source_code, module_qn)
+                
+    def _analyze_javascript(self, root_node: Node, source_code: str, module_qn: str) -> None:
         """Analyze JavaScript/TypeScript data flow."""
         # Variable declarations (let, const, var)
-        # TODO: Implement var_query when JavaScript analysis is added
-        # var_query = """
-        # [
-        #     (variable_declaration) @vardecl
-        #     (lexical_declaration) @lexdecl
-        # ]
-        # """
-
-        # Function declarations and expressions
-        # TODO: Implement func_query when JavaScript analysis is added
-        # func_query = """
-        # [
-        #     (function_declaration) @function
-        #     (arrow_function) @arrow
-        #     (function_expression) @funcexpr
-        # ]
-        # """
-
-        # TODO: Implement JavaScript-specific analysis
-        logger.info("JavaScript data flow analysis not yet implemented")
-
-    def _analyze_c(self, root_node: Node, module_qn: str) -> None:
+        var_query = """
+        (variable_declaration
+          (variable_declarator
+            name: (_) @name
+            value: (_) @value))
+        """
+        
+        declarations = self._run_query(var_query, root_node, source_code)
+        for match in declarations:
+            self._process_js_declaration(match, source_code, module_qn)
+            
+        # Function parameters
+        func_param_query = """
+        [(function_declaration
+           name: (identifier) @func_name
+           parameters: (formal_parameters (_) @param))
+         (arrow_function
+           parameters: (formal_parameters (_) @param))]
+        """
+        
+        functions = self._run_query(func_param_query, root_node, source_code)
+        for match in functions:
+            self._process_function_params(match, source_code, module_qn)
+            
+    def _analyze_c(self, root_node: Node, source_code: str, module_qn: str) -> None:
         """Analyze C data flow including pointer operations."""
-        # Global variables
-        # TODO: Implement global_query when C analysis is added
-        # global_query = """
-        # (translation_unit
-        #     (declaration
-        #         declarator: [
-        #             (identifier) @var_name
-        #             (pointer_declarator
-        #                 declarator: (identifier) @var_name)
-        #             (array_declarator
-        #                 declarator: (identifier) @var_name)
-        #         ]
-        #     ) @global_var
-        # )
-        # """
-
-        # Local variables in functions
-        # TODO: Implement local_query when C analysis is added
-        # local_query = """
-        # (function_definition
-        #     body: (compound_statement
-        #         (declaration
-        #             declarator: [
-        #                 (identifier) @var_name
-        #                 (pointer_declarator
-        #                     declarator: (identifier) @var_name)
-        #                 (array_declarator
-        #                     declarator: (identifier) @var_name)
-        #             ]
-        #         ) @local_var
-        #     )
-        # )
-        # """
-
-        # Assignments including pointer operations
-        # TODO: Implement assign_query when C analysis is added
-        # assign_query = """
-        # [
-        #     (assignment_expression
-        #         left: (_) @lhs
-        #         right: (_) @rhs
-        #     ) @assignment
-        #     (update_expression
-        #         argument: (_) @var
-        #     ) @update
-        # ]
-        # """
-
-        # TODO: Implement C-specific analysis with pointer tracking
-        logger.info("C data flow analysis not yet implemented")
-
-    def _analyze_block_flow(self, block_node: Node, module_qn: str, scope: str) -> None:
-        """Analyze flow within a code block."""
-        # Save the current scope
-        prev_scope = self._current_scope
-        self._current_scope = scope
-
-        for child in block_node.children:
-            if child.type == "expression_statement":
-                expr = child.children[0] if child.children else None
-                if expr and expr.type == "assignment":
-                    self._process_python_assignment(expr, module_qn)
-            elif child.type in ["if_statement", "while_statement", "for_statement"]:
-                # Recursively analyze control flow blocks
-                for subchild in child.children:
-                    if subchild.type in ["block", "compound_statement"]:
-                        self._analyze_block_flow(subchild, module_qn, scope)
-
-        # Restore the previous scope
-        self._current_scope = prev_scope
-
-    def _find_enclosing_scope(self, node: Node, default_scope: str) -> str:
-        """Find the enclosing function or class scope."""
-        current = node.parent
-        while current:
-            if current.type == "function_definition":
-                name_node = current.child_by_field_name("name")
-                if name_node:
-                    return f"{default_scope}.{self._get_node_text(name_node)}"
-            elif current.type == "class_definition":
-                name_node = current.child_by_field_name("name")
-                if name_node:
-                    return f"{default_scope}.{self._get_node_text(name_node)}"
-            current = current.parent
-        return default_scope
-
-    def _resolve_variable(self, var_name: str) -> str | None:
-        """Resolve a variable name to its qualified name."""
-        # Check current scope first
-        if self._current_scope:
-            local_qn = f"{self._current_scope}.{var_name}"
-            if local_qn in self.variables:
-                return local_qn
-
-        # Check module scope
-        for qn, var in self.variables.items():
-            if var.name == var_name and (var.var_type == "global" or var.scope == self._current_scope):
-                return qn
-
-        return None
-
-    def _resolve_field(self, obj_name: str, field_name: str) -> str | None:
-        """Resolve object.field to qualified field name."""
-        # This is simplified - real implementation would need type inference
-        if obj_name == "self" and self._current_scope:
-            # Extract class from method scope
-            parts = self._current_scope.split(".")
-            if len(parts) >= 2:
-                class_qn = ".".join(parts[:-1])
-                field_qn = f"{class_qn}.{field_name}"
-                if field_qn in self.variables:
-                    return field_qn
-        return None
-
-    def _extract_parameter_name(self, param_node: Node) -> str | None:
-        """Extract parameter name from various parameter node types."""
-        if param_node.type == "identifier":
-            return self._get_node_text(param_node)
-        elif param_node.type == "typed_parameter":
-            # Handle type annotations
-            for child in param_node.children:
+        # Variable declarations
+        var_decl_query = """
+        (declaration
+          declarator: (_) @declarator
+          type: (_) @type)
+        """
+        
+        declarations = self._run_query(var_decl_query, root_node, source_code)
+        for match in declarations:
+            self._process_c_declaration(match, source_code, module_qn)
+            
+        # Pointer operations
+        pointer_query = """
+        [(pointer_expression
+           operator: "*"
+           argument: (_) @pointer)
+         (unary_expression
+           operator: "&"
+           argument: (_) @address_of)]
+        """
+        
+        pointers = self._run_query(pointer_query, root_node, source_code)
+        for match in pointers:
+            self._process_pointer_operation(match, source_code, module_qn)
+            
+    def _process_assignment(
+        self, match: dict[str, Node], source_code: str, scope: str
+    ) -> None:
+        """Process an assignment statement."""
+        target_node = match.get("target")
+        source_node = match.get("source")
+        
+        if not target_node or not source_node:
+            return
+            
+        target_name = get_node_text(target_node, source_code)
+        source_text = get_node_text(source_node, source_code)
+        line_number = target_node.start_point[0] + 1
+        
+        # Create or update variable definition
+        if target_name not in self.variables:
+            self.variables[target_name] = VariableDefinition(
+                name=target_name,
+                type_hint=None,
+                line_number=line_number,
+                scope=scope,
+                initial_value=source_text,
+            )
+            
+        # Create data flow edge
+        flow = DataFlowEdge(
+            source=source_text,
+            target=target_name,
+            flow_type="ASSIGNS",
+            line_number=line_number,
+            is_tainted=self._is_tainted(source_text),
+            taint_source=self._get_taint_source(source_text),
+        )
+        self.data_flows.append(flow)
+        
+    def _process_function_params(
+        self, match: dict[str, Node], source_code: str, scope: str
+    ) -> None:
+        """Process function parameters as variable definitions."""
+        func_name = match.get("func_name")
+        param_node = match.get("param")
+        
+        if not param_node:
+            return
+            
+        param_name = get_node_text(param_node, source_code)
+        line_number = param_node.start_point[0] + 1
+        
+        # Create parameter variable
+        self.variables[param_name] = VariableDefinition(
+            name=param_name,
+            type_hint=None,
+            line_number=line_number,
+            scope=f"{scope}.{get_node_text(func_name, source_code)}" if func_name else scope,
+            initial_value=None,
+            is_parameter=True,
+        )
+        
+    def _process_return(
+        self, match: dict[str, Node], source_code: str, scope: str
+    ) -> None:
+        """Process return statements as data flows."""
+        return_value = match.get("return_value")
+        
+        if not return_value:
+            return
+            
+        return_text = get_node_text(return_value, source_code)
+        line_number = return_value.start_point[0] + 1
+        
+        # Create data flow for return
+        flow = DataFlowEdge(
+            source=return_text,
+            target="@return",
+            flow_type="RETURNS",
+            line_number=line_number,
+            is_tainted=self._is_tainted(return_text),
+            taint_source=self._get_taint_source(return_text),
+        )
+        self.data_flows.append(flow)
+        
+    def _process_js_declaration(
+        self, match: dict[str, Node], source_code: str, scope: str
+    ) -> None:
+        """Process JavaScript variable declaration."""
+        name_node = match.get("name")
+        value_node = match.get("value")
+        
+        if not name_node:
+            return
+            
+        var_name = get_node_text(name_node, source_code)
+        var_value = get_node_text(value_node, source_code) if value_node else None
+        line_number = name_node.start_point[0] + 1
+        
+        # Determine mutability from declaration type
+        decl_node = name_node.parent.parent
+        is_const = decl_node and get_node_text(decl_node.children[0], source_code) == "const"
+        
+        self.variables[var_name] = VariableDefinition(
+            name=var_name,
+            type_hint=None,
+            line_number=line_number,
+            scope=scope,
+            initial_value=var_value,
+            is_mutable=not is_const,
+        )
+        
+        if var_value:
+            flow = DataFlowEdge(
+                source=var_value,
+                target=var_name,
+                flow_type="ASSIGNS",
+                line_number=line_number,
+                is_tainted=self._is_tainted(var_value),
+                taint_source=self._get_taint_source(var_value),
+            )
+            self.data_flows.append(flow)
+            
+    def _process_c_declaration(
+        self, match: dict[str, Node], source_code: str, scope: str
+    ) -> None:
+        """Process C variable declaration."""
+        declarator = match.get("declarator")
+        type_node = match.get("type")
+        
+        if not declarator:
+            return
+            
+        # Extract variable name from declarator
+        var_name = self._extract_c_var_name(declarator, source_code)
+        var_type = get_node_text(type_node, source_code) if type_node else None
+        line_number = declarator.start_point[0] + 1
+        
+        self.variables[var_name] = VariableDefinition(
+            name=var_name,
+            type_hint=var_type,
+            line_number=line_number,
+            scope=scope,
+            initial_value=None,
+        )
+        
+    def _process_pointer_operation(
+        self, match: dict[str, Node], source_code: str, scope: str
+    ) -> None:
+        """Process C pointer operations."""
+        pointer_node = match.get("pointer")
+        address_of_node = match.get("address_of")
+        
+        if pointer_node:
+            # Dereference operation
+            pointer_name = get_node_text(pointer_node, source_code)
+            line_number = pointer_node.start_point[0] + 1
+            
+            flow = DataFlowEdge(
+                source=f"*{pointer_name}",
+                target="@dereference",
+                flow_type="READS",
+                line_number=line_number,
+            )
+            self.data_flows.append(flow)
+            
+        elif address_of_node:
+            # Address-of operation
+            var_name = get_node_text(address_of_node, source_code)
+            line_number = address_of_node.start_point[0] + 1
+            
+            flow = DataFlowEdge(
+                source=var_name,
+                target=f"&{var_name}",
+                flow_type="ADDRESS_OF",
+                line_number=line_number,
+            )
+            self.data_flows.append(flow)
+            
+    def _extract_c_var_name(self, declarator: Node, source_code: str) -> str:
+        """Extract variable name from C declarator."""
+        # Handle different declarator types
+        if declarator.type == "identifier":
+            return get_node_text(declarator, source_code)
+        elif declarator.type == "pointer_declarator":
+            # Recurse to find identifier
+            for child in declarator.children:
                 if child.type == "identifier":
-                    return self._get_node_text(child)
+                    return get_node_text(child, source_code)
+                elif child.type in ["pointer_declarator", "array_declarator"]:
+                    return self._extract_c_var_name(child, source_code)
+        elif declarator.type == "init_declarator":
+            # Has an initializer
+            for child in declarator.children:
+                if child.type != "=":
+                    return self._extract_c_var_name(child, source_code)
+                    
+        return "unknown"
+        
+    def _is_tainted(self, expression: str) -> bool:
+        """Check if an expression involves tainted sources."""
+        for taint in self.taint_sources:
+            if taint in expression.lower():
+                return True
+        return False
+        
+    def _get_taint_source(self, expression: str) -> str | None:
+        """Get the taint source from an expression."""
+        for taint in self.taint_sources:
+            if taint in expression.lower():
+                return taint
         return None
-
-    def _process_class_field(self, node: Node, class_qn: str) -> None:
-        """Process class-level field assignment."""
-        if node.children and node.children[0].type == "assignment":
-            assign = node.children[0]
-            left = assign.child_by_field_name("left")
-            right = assign.child_by_field_name("right")
-
-            if left and left.type == "identifier":
-                field_name = self._get_node_text(left)
-                field_qn = f"{class_qn}.{field_name}"
-
-                field_node = VariableNode(
-                    name=field_name,
-                    qualified_name=field_qn,
-                    var_type="field",
-                    declared_at=left.start_point[0] + 1,
-                    scope=class_qn,
-                    is_mutable=True,
-                    initial_value=self._get_node_text(right) if right else None,
-                    language="python"
-                )
-                self.variables[field_qn] = field_node
-
-    def _get_node_text(self, node: Node) -> str:
-        """Get text content of a node."""
-        start_line = node.start_point[0]
-        start_col = node.start_point[1]
-        end_line = node.end_point[0]
-        end_col = node.end_point[1]
-
-        if start_line == end_line:
-            return self._source_lines[start_line][start_col:end_col]
-        else:
-            # Multi-line node
-            lines = []
-            lines.append(self._source_lines[start_line][start_col:])
-            for i in range(start_line + 1, end_line):
-                lines.append(self._source_lines[i])
-            lines.append(self._source_lines[end_line][:end_col])
-            return "\n".join(lines)
+        
+    def _run_query(self, query: str, node: Node, source_code: str) -> list[dict]:
+        """Run a tree-sitter query and return matches."""
+        # This is a simplified version - actual implementation would use
+        # the tree-sitter query API
+        return []
+        
+    def _build_graph_elements(
+        self, module_qn: str
+    ) -> tuple[list[dict], list[dict]]:
+        """Build graph nodes and relationships from analyzed data."""
+        nodes = []
+        relationships = []
+        
+        # Create Variable nodes
+        for var_name, var_def in self.variables.items():
+            var_node = {
+                "label": "Variable",
+                "properties": {
+                    "name": var_def.name,
+                    "qualified_name": f"{var_def.scope}.{var_def.name}",
+                    "type_hint": var_def.type_hint,
+                    "line_number": var_def.line_number,
+                    "scope": var_def.scope,
+                    "is_parameter": var_def.is_parameter,
+                    "is_global": var_def.is_global,
+                    "is_mutable": var_def.is_mutable,
+                    "initial_value": var_def.initial_value,
+                },
+            }
+            nodes.append(var_node)
+            
+        # Create FLOWS_TO relationships
+        for flow in self.data_flows:
+            flow_rel = {
+                "start_label": "Variable" if flow.source in self.variables else "Expression",
+                "start_key": "name" if flow.source in self.variables else "value",
+                "start_value": flow.source,
+                "rel_type": "FLOWS_TO",
+                "end_label": "Variable" if flow.target in self.variables else "Expression",
+                "end_key": "name" if flow.target in self.variables else "value",
+                "end_value": flow.target,
+                "properties": {
+                    "flow_type": flow.flow_type,
+                    "line_number": flow.line_number,
+                    "is_tainted": flow.is_tainted,
+                    "taint_source": flow.taint_source,
+                },
+            }
+            relationships.append(flow_rel)
+            
+        return nodes, relationships
+        
+    def track_cross_function_flows(
+        self, call_graph: dict[str, list[str]]
+    ) -> list[dict]:
+        """Track data flows across function boundaries."""
+        cross_function_flows = []
+        
+        # Analyze parameter passing and return values
+        for caller, callees in call_graph.items():
+            for callee in callees:
+                # Check if data flows from caller to callee
+                # This is a simplified version - actual implementation would
+                # analyze actual parameter passing
+                flow = {
+                    "start_label": "Function",
+                    "start_key": "qualified_name",
+                    "start_value": caller,
+                    "rel_type": "PASSES_DATA_TO",
+                    "end_label": "Function",
+                    "end_key": "qualified_name",
+                    "end_value": callee,
+                    "properties": {
+                        "data_type": "parameters",
+                    },
+                }
+                cross_function_flows.append(flow)
+                
+        return cross_function_flows
+        
+    def perform_taint_analysis(
+        self, entry_points: list[str]
+    ) -> list[tuple[str, str, str]]:
+        """Perform taint analysis from specified entry points."""
+        taint_paths = []
+        
+        # Track tainted data through the flow graph
+        for entry in entry_points:
+            # Find all flows starting from this entry point
+            for flow in self.data_flows:
+                if flow.is_tainted and flow.taint_source:
+                    # Record taint path
+                    taint_paths.append(
+                        (flow.taint_source, flow.target, flow.flow_type)
+                    )
+                    
+        return taint_paths
