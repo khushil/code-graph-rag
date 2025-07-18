@@ -2,9 +2,11 @@
 
 This guide helps you migrate to the latest version and take advantage of new features.
 
-## New Features Overview
+## Version 0.2.0 - Major Feature Release
 
-### Multi-Provider LLM Support
+### New Features Overview
+
+#### Multi-Provider LLM Support
 The system now supports multiple AI providers:
 - **Google Gemini** - Best overall performance
 - **OpenAI** - GPT-4 and GPT-4o models
@@ -13,26 +15,72 @@ The system now supports multiple AI providers:
 
 You can mix providers for different tasks and switch at runtime.
 
-### 1. C Language Support
+#### 1. C Language Support
 The system now fully supports C codebases, including:
 - Function and struct definitions
 - Pointer analysis and function pointers
 - Macro expansion tracking
 - Linux kernel patterns (syscalls, exports, locks)
+- Preprocessor directive handling
+- Type definitions and unions
 
-### 2. Test Framework Integration
-Automatic detection and parsing of tests:
+#### 2. Advanced Analysis Features
+
+**Security Analysis:**
+- SQL/Command injection detection
+- XSS vulnerability scanning
+- Buffer overflow analysis (C/C++)
+- Hardcoded secrets detection
+- Taint flow tracking
+- CWE mapping for vulnerabilities
+
+**Test Framework Integration:**
 - Unit tests across all major frameworks
 - BDD/Gherkin feature files
 - Test-to-code linking
-- Coverage analysis
+- Coverage analysis and metrics
+- Assertion extraction
+- Test suite organization
 
-### 3. Performance Enhancements
+**Data Flow Analysis:**
+- Variable usage tracking
+- Taint propagation paths
+- Data transformation tracking
+- Sensitive data detection
+
+**Inheritance & OOP Analysis:**
+- Full inheritance hierarchies
+- Interface implementations
+- Method override tracking
+- Abstract class detection
+- Polymorphism analysis
+
+#### 3. Version Control Integration
+Full Git repository analysis:
+- Commit history with metadata
+- Author contribution tracking
+- File modification frequency
+- Blame information
+- Change patterns over time
+- Test file history
+
+#### 4. Configuration File Support
+Parse and analyze configuration files:
+- YAML, JSON, TOML, INI formats
+- Makefile and build scripts
+- Kconfig (Linux kernel configs)
+- Environment variable files
+- Configuration dependencies
+- Secret detection in configs
+
+#### 5. Performance Enhancements
 Major scalability improvements:
 - Parallel processing with multiple workers
 - Memory optimization for large files
 - Graph indexing for faster queries
 - Query result caching
+- Progress reporting with ETA
+- Streaming parsers for huge files
 
 ## Migration Steps
 
@@ -48,6 +96,11 @@ uv sync --extra treesitter-full
 # For development
 make dev
 ```
+
+**New Dependencies Added:**
+- `gitpython>=3.1.0` - Git repository analysis
+- `pyyaml>=6.0.0` - YAML configuration parsing
+- Additional analysis modules for security, testing, and data flow
 
 ### Step 2: Tree-sitter API Changes
 
@@ -123,25 +176,88 @@ python -m codebase_rag.main start --repo-path /path/to/repo --update-graph --par
 python -m codebase_rag.main start --repo-path /path/to/repo --update-graph --parallel --workers 8
 ```
 
-#### Memory Optimization
-Automatically enabled for files >10MB. Monitor with progress reporter.
+#### Security Analysis Queries
+```
+"Show me all SQL injection vulnerabilities"
+"Find hardcoded passwords or API keys"
+"List buffer overflow risks in C code"
+"Show me taint flows from user input"
+"Find CWE-79 XSS vulnerabilities"
+```
 
-#### Test Analysis
-Tests are now automatically detected and linked. Query them:
+#### Test Coverage Queries
 ```
 "Show me all functions that have unit tests"
 "Find untested functions in the authentication module"
 "List all BDD scenarios for user management"
+"What's the test coverage for the database module?"
+"Show me flaky tests with multiple assertion types"
+```
+
+#### Version Control Queries
+```
+"Who are the top contributors?"
+"Show files changed in the last week"
+"Who last modified the auth module?"
+"Find commits by John Doe"
+"Show me the most frequently modified files"
+```
+
+#### Configuration Analysis Queries
+```
+"Find all database configuration settings"
+"Show me API keys in config files"
+"List all Makefile targets"
+"Find environment-specific configs"
+"Show configuration dependencies"
 ```
 
 #### C Code Queries
-New queries for C codebases:
 ```
-"Find all functions that use spinlocks"
-"Show pointer relationships in driver code"
-"List all syscall implementations"
-"Find macro expansions for CONFIG_DEBUG"
+"Find all struct definitions"
+"Show me function pointers"
+"List all macro definitions"
+"Find kernel module entry points"
+"Show pointer relationships"
+"Find all syscall implementations"
+"List EXPORT_SYMBOL declarations"
 ```
+
+#### Data Flow Queries
+```
+"Trace the password variable through the code"
+"Find all uses of user_input"
+"Show me data transformations"
+"Track sensitive data flows"
+"Find variable reassignments"
+```
+
+#### OOP/Inheritance Queries
+```
+"Show inheritance tree for UserService"
+"Find all interface implementations"
+"List methods that override parent methods"
+"Show me abstract classes"
+"Find deep inheritance hierarchies"
+```
+
+## Upgrading from v0.1 to v0.2
+
+### What's Changed
+1. **Enhanced Graph Schema**: New node types (Vulnerability, Author, Commit, ConfigFile) and relationships
+2. **Improved Query Templates**: More sophisticated natural language understanding
+3. **Better C Support**: Full kernel code analysis capabilities
+4. **Analysis Modules**: New modules in `codebase_rag/analysis/` for specialized analysis
+
+### Required Actions
+1. **Re-ingest your codebase** to populate new node types and relationships
+2. **Update your `.env`** file with any new provider API keys
+3. **Review new query patterns** in the Query Cookbook for enhanced capabilities
+
+### Optional Optimizations
+1. Enable parallel processing for faster ingestion
+2. Use folder filtering for incremental updates
+3. Configure multiple AI providers for flexibility
 
 ## Breaking Changes
 
@@ -168,14 +284,23 @@ This release maintains full backward compatibility. All existing features contin
 
 ## New Example Scripts
 
-Check out the new example scripts:
+Check out the enhanced example scripts:
 
 ```bash
-# Analyze large codebases
+# Analyze large codebases with parallel processing
 python examples/large_codebase_example.py /path/to/linux --workers 16
 
-# Analyze C code and tests
+# Analyze C code and test coverage
 python examples/c_and_test_analysis_example.py --report
+
+# Version control and configuration analysis
+python examples/vcs_and_config_example.py /path/to/repo --days 30 --show-queries
+
+# Security vulnerabilities and test coverage
+python examples/security_and_test_example.py /path/to/repo --language python
+
+# Comprehensive analysis with all features
+python examples/comprehensive_analysis_example.py /path/to/repo --report analysis.json
 ```
 
 ## Troubleshooting

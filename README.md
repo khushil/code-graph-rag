@@ -78,7 +78,7 @@ Use the Makefile for:
 - **🥒 BDD Support**: Parse and link Gherkin feature files to implementations
 
 ### Security & Code Quality (New!)
-- **🔒 Security Vulnerability Detection**: 
+- **🔒 Security Vulnerability Detection**:
   - SQL/Command injection detection
   - XSS vulnerability scanning
   - Hardcoded secrets detection
@@ -90,16 +90,20 @@ Use the Makefile for:
 - **🔄 Circular Dependency Detection**: Identify and visualize circular imports
 
 ### Version Control Integration (New!)
-- **📝 Git Blame Integration**: See who modified each file and when
-- **👥 Contributor Analysis**: Track top contributors and commit patterns
-- **📅 Change History**: Query files by modification date
-- **🔍 Commit Metadata**: Access commit messages and author information
+- **📝 Git Repository Analysis**: Full Git history integration with commit and author tracking
+- **👥 Contributor Analysis**: Track top contributors, commit patterns, and expertise areas
+- **📅 Change History**: Query files by modification date and track change frequency
+- **🔍 Commit Metadata**: Access commit messages, author information, and parent relationships
+- **📊 Blame Information**: Line-by-line authorship tracking for accountability
+- **🔄 File History**: Complete modification history for each file
 
 ### Configuration & Build Support (New!)
 - **⚙️ Configuration File Parsing**: Support for JSON, YAML, TOML, INI, .env files
 - **📦 Dependency Extraction**: Extract dependencies from config files
-- **🏗️ Build Script Analysis**: Parse npm scripts, Makefiles, Dockerfiles
+- **🏗️ Build Script Analysis**: Parse npm scripts, Makefiles, Dockerfiles, Kconfig
 - **🌍 Environment Detection**: Identify environment-specific configurations
+- **🔗 Config References**: Track relationships between configuration files
+- **🔑 Secret Detection**: Find API keys, tokens, and sensitive configuration
 
 ## 🏗️ Architecture
 
@@ -517,6 +521,11 @@ The knowledge graph uses the following node types and relationships:
 - **Typedef**: C type definitions
 - **Syscall**: Linux kernel syscall definitions
 - **KernelExport**: Kernel exported symbols
+- **Vulnerability**: Security vulnerabilities with severity and CWE IDs
+- **Author**: Git commit authors with contribution statistics
+- **Commit**: Git commits with metadata and relationships
+- **ConfigFile**: Configuration files (YAML, JSON, INI, etc.)
+- **ConfigValue**: Individual configuration settings
 
 ### Language-Specific Mappings
 - **Python**: `function_definition`, `class_definition`
@@ -550,6 +559,17 @@ The knowledge graph uses the following node types and relationships:
 - `IN_SCENARIO`: Step belongs to BDD scenario
 - `IMPLEMENTS_STEP`: Function implements BDD step
 - `GIVEN_LINKS_TO`/`WHEN_LINKS_TO`/`THEN_LINKS_TO`: BDD step linkages
+- `FLOWS_TO`: Data flow between variables
+- `INHERITS_FROM`/`IMPLEMENTS`: OOP inheritance relationships
+- `OVERRIDES`: Method override relationships
+- `HAS_VULNERABILITY`: Code element has security vulnerability
+- `TAINT_FLOW`: Tainted data flow paths
+- `AUTHORED_BY`: Commit authored by contributor
+- `PARENT_OF`: Commit parent relationships
+- `MODIFIED_IN`/`ADDED_IN`/`REMOVED_IN`: File modification in commits
+- `CONFIGURES`: Configuration file configures module
+- `INCLUDES_CONFIG`: Configuration file includes another
+- `REFERENCES_CONFIG`: Code references configuration
 
 ## 🔧 Configuration
 
@@ -632,6 +652,7 @@ The agent uses AST-based function targeting with Tree-sitter for precise code mo
 | Scala      | `.scala`, `.sc` | ✅      | ✅ (classes/objects/traits) | ✅ | package declarations |
 | Java       | `.java`       | ✅        | ✅ (classes/interfaces/enums) | ✅ | package declarations |
 | C++        | `.cpp`, `.h`, `.hpp`, `.cc`, `.cxx`, `.hxx`, `.hh`| ✅      | ✅ (classes/structs/unions/enums) | ✅      | -                |
+| C          | `.c`, `.h`    | ✅        | ✅ (structs/unions/enums) | ✅      | -                |
 
 ### Language-Specific Features
 
@@ -642,6 +663,7 @@ The agent uses AST-based function targeting with Tree-sitter for precise code mo
 - **Scala**: Functions, methods, classes, objects, traits, case classes, and Scala 3 syntax
 - **Java**: Methods, constructors, classes, interfaces, enums, and annotation types
 - **C++**: Functions, classes, structs, and methods
+- **C**: Functions, structs, unions, enums, typedefs, macros, function pointers, and kernel-specific constructs
 
 
 ### Language Configuration
@@ -691,6 +713,7 @@ For issues or questions:
 
 - **[SETUP.md](SETUP.md)** - Complete step-by-step setup guide
 - **[ADVANCED_FEATURES.md](docs/ADVANCED_FEATURES.md)** - Comprehensive guide to all advanced features
+- **[QUERY_COOKBOOK.md](docs/QUERY_COOKBOOK.md)** - Practical query examples and patterns
 - **[MIGRATION.md](MIGRATION.md)** - Guide for upgrading to latest features
 - **[CHANGELOG.md](CHANGELOG.md)** - Detailed list of changes and new features
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Guidelines for contributors
@@ -707,6 +730,7 @@ For issues or questions:
 - **[Git Integration](docs/ADVANCED_FEATURES.md#git-integration)** - Version control history and blame
 - **[Configuration Parsing](docs/ADVANCED_FEATURES.md#configuration-file-parsing)** - Config file analysis
 - **[Query Templates](codebase_rag/query_templates.py)** - Pre-built Cypher query templates
+- **[Query Cookbook](docs/QUERY_COOKBOOK.md)** - Extensive collection of query examples
 
 ## Star History
 

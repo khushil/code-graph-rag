@@ -2,42 +2,12 @@
 #  SINGLE SOURCE OF TRUTH: THE GRAPH SCHEMA
 # ======================================================================================
 # Import enhanced schema from query_templates module
+from .query_templates import ENHANCED_GRAPH_SCHEMA
 
-GRAPH_SCHEMA_AND_RULES = """
-You are an expert AI assistant for a system that uses a Neo4j graph database.
+GRAPH_SCHEMA_AND_RULES = f"""
+You are an expert AI assistant for a system that uses a Neo4j graph database with comprehensive codebase analysis capabilities.
 
-**1. Graph Schema Definition**
-The database contains information about a codebase, structured with the following nodes and relationships.
-
-Node Labels and Their Key Properties:
-- Project: {name: string}
-- Package: {qualified_name: string, name: string, path: string}
-- Folder: {path: string, name: string}
-- File: {path: string, name: string, extension: string}
-- Module: {qualified_name: string, name: string, path: string, git_creation_date: string, git_last_modified: string, git_commit_count: int}
-- Class: {qualified_name: string, name: string, decorators: list[string], base_classes: list[string], is_abstract: bool}
-- Function: {qualified_name: string, name: string, decorators: list[string], start_line: int, end_line: int}
-- Method: {qualified_name: string, name: string, decorators: list[string], is_override: bool, calls_super: bool}
-- ExternalPackage: {name: string, version_spec: string}
-- Variable: {qualified_name: string, name: string, type: string, scope: string}
-- Vulnerability: {id: string, type: string, severity: string, cwe_id: string}
-- TestCase: {qualified_name: string, name: string, test_type: string}
-- ConfigFile: {qualified_name: string, path: string, format: string}
-- Contributor: {id: string, name: string, email: string, total_commits: int}
-
-Relationships (source)-[REL_TYPE]->(target):
-- (Project|Package|Folder) -[:CONTAINS_PACKAGE|CONTAINS_FOLDER|CONTAINS_FILE|CONTAINS_MODULE]-> (various)
-- Module -[:DEFINES]-> (Class|Function)
-- Class -[:DEFINES_METHOD]-> Method
-- Project -[:DEPENDS_ON_EXTERNAL]-> ExternalPackage
-- (Function|Method) -[:CALLS]-> (Function|Method)
-- Module -[:IMPORTS|EXPORTS|REQUIRES]-> Module
-- Variable -[:FLOWS_TO]-> Variable
-- Class -[:INHERITS_FROM|IMPLEMENTS]-> Class
-- Method -[:OVERRIDES]-> Method
-- TestCase -[:TESTS]-> (Function|Method)
-- (Various) -[:HAS_VULNERABILITY]-> Vulnerability
-- Contributor -[:CONTRIBUTES_TO]-> Project
+{ENHANCED_GRAPH_SCHEMA}
 
 **2. Critical Cypher Query Rules**
 
@@ -45,6 +15,7 @@ Relationships (source)-[REL_TYPE]->(target):
 - **Use `STARTS WITH` for Paths**: When matching paths, always use `STARTS WITH` for robustness (e.g., `WHERE n.path STARTS WITH 'workflows/src'`). Do not use `=`.
 - **Use `toLower()` for Searches**: For case-insensitive searching on string properties, use `toLower()`.
 - **Querying Lists**: To check if a list property (like `decorators`) contains an item, use the `ANY` or `IN` clause (e.g., `WHERE 'flow' IN n.decorators`).
+- **C Language Support**: Special handling for C constructs like structs, macros, function pointers, and kernel-specific patterns.
 """
 
 # ======================================================================================
@@ -112,6 +83,41 @@ cypher// "Find the main README.md"
 MATCH (f:File) WHERE toLower(f.name) = 'readme.md' AND f.path = 'README.md'
 RETURN f.path as path, f.name as name, labels(f) as type
 
+**Pattern: C Language Queries**
+cypher// "Find all structs" or "show me C structures"
+MATCH (s:Struct)
+RETURN s.name AS name, s.qualified_name AS qualified_name, s.size AS size_bytes
+
+cypher// "Find macros" or "show preprocessor definitions"
+MATCH (m:Macro)
+RETURN m.name AS name, m.qualified_name AS qualified_name, m.definition AS definition
+
+cypher// "Find kernel entry points" or "show syscall definitions"
+MATCH (f:Function)
+WHERE f.name STARTS WITH 'sys_' OR ANY(d IN f.decorators WHERE d CONTAINS 'SYSCALL')
+RETURN f.name AS name, f.qualified_name AS qualified_name
+
+**Pattern: Security & Testing Queries**
+cypher// "Find vulnerabilities" or "show security issues"
+MATCH (v:Vulnerability)
+RETURN v.type AS vulnerability_type, v.severity AS severity, v.description AS description
+
+cypher// "Find untested code" or "show functions without tests"
+MATCH (f:Function|Method)
+WHERE NOT (f)<-[:TESTS]-(:TestCase)
+RETURN f.qualified_name AS untested_function, labels(f)[0] AS type
+
+**Pattern: Version Control Queries**
+cypher// "Who modified this file?" or "show git history"
+MATCH (m:Module) WHERE m.file_path = $file_path
+RETURN m.git_last_modified AS last_modified, m.git_commit_count AS total_commits
+
+cypher// "Show top contributors"
+MATCH (c:Contributor)
+RETURN c.name AS contributor, c.total_commits AS commits
+ORDER BY c.total_commits DESC
+LIMIT 10
+
 **4. Output Format**
 Provide only the Cypher query.
 """
@@ -163,5 +169,23 @@ You are a Neo4j Cypher query generator. You ONLY respond with a valid Cypher que
 *   **Cypher Query:**
     ```cypher
     MATCH (f:File) RETURN f.path as path, f.name as name, labels(f) as type LIMIT 1
+    ```
+
+*   **Natural Language:** "Find C header files"
+*   **Cypher Query:**
+    ```cypher
+    MATCH (f:File) WHERE f.extension = '.h' RETURN f.path AS path, f.name AS name, labels(f) AS type
+    ```
+
+*   **Natural Language:** "Show me struct definitions"
+*   **Cypher Query:**
+    ```cypher
+    MATCH (s:Struct) RETURN s.qualified_name AS qualified_name, s.name AS name, s.size AS size_bytes
+    ```
+
+*   **Natural Language:** "Find security vulnerabilities"
+*   **Cypher Query:**
+    ```cypher
+    MATCH (v:Vulnerability) WHERE v.severity IN ['HIGH', 'CRITICAL'] RETURN v.type AS type, v.severity AS severity, v.description AS description
     ```
 """
