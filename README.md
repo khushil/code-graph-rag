@@ -54,6 +54,7 @@ Use the Makefile for:
 - **🔗 Dependency Analysis**: Parses `pyproject.toml` to understand external dependencies
 - **🎯 Nested Function Support**: Handles complex nested functions and class hierarchies
 - **🔄 Language-Agnostic Design**: Unified graph schema across all supported languages
+- **🤖 MCP Server**: Model Context Protocol server for AI agent integration
 
 ### Performance & Scalability (New!)
 - **⚡ Parallel Processing**: Multi-core parallel file parsing with configurable worker pools
@@ -107,10 +108,11 @@ Use the Makefile for:
 
 ## 🏗️ Architecture
 
-The system consists of two main components:
+The system consists of three main components:
 
 1. **Multi-language Parser**: Tree-sitter based parsing system that analyzes codebases and ingests data into Memgraph
 2. **RAG System** (`codebase_rag/`): Interactive CLI for querying the stored knowledge graph
+3. **MCP Server** (`mcp_server/`): Model Context Protocol server enabling AI agents to interact with the system
 
 
 ## 📋 Prerequisites
@@ -670,6 +672,77 @@ The agent uses AST-based function targeting with Tree-sitter for precise code mo
 
 The system uses a configuration-driven approach for language support. Each language is defined in `codebase_rag/language_config.py`.
 
+## 🤖 MCP Server - AI Agent Integration
+
+The Graph-Code RAG system includes a Model Context Protocol (MCP) server that enables AI agents and LLMs to interact with codebases programmatically.
+
+### MCP Features
+
+- **🔌 Standardized Protocol**: Compatible with Claude Desktop, OpenAI assistants, and custom AI agents
+- **🛠️ Rich Tool Set**: Load repositories, query graphs, analyze security, check coverage, and more
+- **📊 Real-time Analysis**: Stream analysis results directly to AI conversations
+- **🔒 Secure Access**: Built-in security features and rate limiting
+- **🚀 High Performance**: Caching, parallel processing, and optimized queries
+
+### Quick Start with MCP
+
+1. **Install MCP dependencies**:
+```bash
+pip install mcp>=0.9.0
+```
+
+2. **Start the MCP server**:
+```bash
+python -m mcp_server.server
+# or use the launcher script
+./mcp_server/launch.sh
+```
+
+3. **Configure Claude Desktop** (add to config):
+```json
+{
+  "mcpServers": {
+    "code-graph-rag": {
+      "command": "python",
+      "args": ["-m", "mcp_server.server"],
+      "cwd": "/path/to/code-graph-rag"
+    }
+  }
+}
+```
+
+### Available MCP Tools
+
+- `load_repository` - Load and analyze a codebase
+- `query_graph` - Query using natural language or Cypher
+- `analyze_security` - Find security vulnerabilities
+- `analyze_test_coverage` - Check test coverage
+- `get_code_metrics` - Get complexity and quality metrics
+- `analyze_git_history` - Analyze contributors and commits
+- `find_code_patterns` - Find patterns or anti-patterns
+- `export_graph` - Export graph data
+
+### Example: AI Agent Workflow
+
+```python
+# AI agent analyzing code quality
+async def analyze_codebase():
+    # Load repository
+    await mcp.load_repository("/path/to/repo")
+
+    # Check security
+    vulns = await mcp.analyze_security()
+
+    # Get test coverage
+    coverage = await mcp.analyze_test_coverage()
+
+    # Generate recommendations
+    if vulns['critical'] > 0:
+        print("Fix critical security issues first!")
+```
+
+For detailed MCP documentation, see [mcp_server/README.md](mcp_server/README.md).
+
 ## 📦 Building a binary
 
 You can build a binary of the application using the `build_binary.py` script. This script uses PyInstaller to package the application and its dependencies into a single executable.
@@ -713,6 +786,7 @@ For issues or questions:
 
 - **[SETUP.md](SETUP.md)** - Complete step-by-step setup guide
 - **[ADVANCED_FEATURES.md](docs/ADVANCED_FEATURES.md)** - Comprehensive guide to all advanced features
+- **[ADVANCED_USAGE.md](docs/ADVANCED_USAGE.md)** - Advanced usage scenarios for large-scale analysis
 - **[QUERY_COOKBOOK.md](docs/QUERY_COOKBOOK.md)** - Practical query examples and patterns
 - **[MIGRATION.md](MIGRATION.md)** - Guide for upgrading to latest features
 - **[CHANGELOG.md](CHANGELOG.md)** - Detailed list of changes and new features
@@ -721,6 +795,13 @@ For issues or questions:
   - `graph_export_example.py` - Basic graph analysis
   - `large_codebase_example.py` - Parallel processing demo
   - `c_and_test_analysis_example.py` - C language and test analysis
+  - `vcs_and_config_example.py` - Git history and configuration analysis
+  - `security_and_test_example.py` - Security scanning and test coverage
+  - `comprehensive_analysis_example.py` - All features integrated
+  - `kernel_analysis_example.py` - Linux kernel code analysis
+  - `large_scale_management.py` - Managing million-line codebases
+  - `multi_repo_analysis.py` - Ecosystem and cross-repository analysis
+  - `performance_benchmark.py` - Performance testing and optimization
 
 ### Advanced Feature Guides
 

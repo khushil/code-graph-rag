@@ -1,0 +1,96 @@
+{
+  "name": "code-graph-rag",
+  "version": "1.0.0",
+  "description": "MCP server for Graph-Code RAG system - enables AI agents to analyze and query codebases",
+  "author": "Graph-Code RAG Team",
+  "license": "MIT",
+  "capabilities": {
+    "tools": true,
+    "resources": true,
+    "prompts": false,
+    "sampling": false
+  },
+  "tools": [
+    {
+      "name": "load_repository",
+      "description": "Load a repository and build its code graph",
+      "category": "setup"
+    },
+    {
+      "name": "query_graph",
+      "description": "Query the code graph using natural language or Cypher",
+      "category": "analysis"
+    },
+    {
+      "name": "analyze_security",
+      "description": "Analyze security vulnerabilities in the codebase",
+      "category": "security"
+    },
+    {
+      "name": "analyze_data_flow",
+      "description": "Analyze data flow through the codebase",
+      "category": "analysis"
+    },
+    {
+      "name": "analyze_test_coverage",
+      "description": "Analyze test coverage and find untested code",
+      "category": "testing"
+    },
+    {
+      "name": "analyze_dependencies",
+      "description": "Analyze code dependencies and circular imports",
+      "category": "architecture"
+    },
+    {
+      "name": "find_code_patterns",
+      "description": "Find specific code patterns or anti-patterns",
+      "category": "analysis"
+    },
+    {
+      "name": "export_graph",
+      "description": "Export the current graph to a file",
+      "category": "utility"
+    },
+    {
+      "name": "get_code_metrics",
+      "description": "Get code quality metrics and statistics",
+      "category": "metrics"
+    },
+    {
+      "name": "analyze_git_history",
+      "description": "Analyze git history and contributor patterns",
+      "category": "vcs"
+    }
+  ],
+  "resources": [
+    {
+      "uri_pattern": "repo://*",
+      "description": "Currently loaded repository"
+    },
+    {
+      "uri_pattern": "graph://current",
+      "description": "Current code graph data"
+    }
+  ],
+  "environment": {
+    "required": [
+      "MEMGRAPH_HOST",
+      "MEMGRAPH_PORT"
+    ],
+    "optional": [
+      "GEMINI_API_KEY",
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "LOCAL_MODEL_ENDPOINT"
+    ]
+  },
+  "installation": {
+    "command": "pip install -e .",
+    "requirements": [
+      "mcp>=0.9.0",
+      "pymgclient>=1.3.1",
+      "tree-sitter>=0.20.0",
+      "gitpython>=3.1.0"
+    ]
+  }
+}

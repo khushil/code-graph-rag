@@ -1,0 +1,14 @@
+# MCP Server Requirements
+mcp>=0.9.0
+pymgclient>=1.3.1
+tree-sitter>=0.20.0
+gitpython>=3.1.0
+loguru>=0.7.0
+pydantic>=2.0.0
+psutil>=5.9.0
+rich>=13.0.0
+
+# Optional for enhanced features
+semgrep>=1.0.0  # For security analysis
+coverage>=7.0.0  # For test coverage analysis
+gherkin-official>=24.0.0  # For BDD support
