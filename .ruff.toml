@@ -1,0 +1,56 @@
+# Ruff configuration file for more granular control
+
+# Extend the pyproject.toml configuration
+extend = "pyproject.toml"
+
+# Additional per-file ignores for specific patterns
+[lint.per-file-ignores]
+# Allow TODO comments in all files
+"**/*.py" = ["ERA001", "TD002", "TD003", "FIX002"]
+
+# Tests can have more relaxed rules
+"tests/**/*.py" = [
+    "ARG001",  # Unused function arguments
+    "ARG002",  # Unused method arguments
+    "PLR2004", # Magic values
+    "S101",    # Use of assert
+    "SIM300",  # Yoda conditions
+    "PLR0913", # Too many arguments
+    "PLR0912", # Too many branches
+]
+
+# Examples and scripts can have print statements
+"examples/**/*.py" = ["T201", "T203"]
+"scripts/**/*.py" = ["T201", "T203"]
+
+# Allow complex functions in parsers
+"codebase_rag/parsers/*.py" = [
+    "PLR0912", # Too many branches
+    "PLR0913", # Too many arguments
+    "PLR0915", # Too many statements
+    "C901",    # Complex function
+]
+
+# Analysis modules can be complex
+"codebase_rag/analysis/*.py" = [
+    "PLR0912", # Too many branches
+    "PLR0913", # Too many arguments
+    "PLR0915", # Too many statements
+]
+
+# Main module can have complex CLI
+"codebase_rag/main.py" = [
+    "PLR0912", # Too many branches
+    "PLR0913", # Too many arguments
+    "PLR0915", # Too many statements
+    "C901",    # Complex function
+]
+
+[lint.isort]
+known-first-party = ["codebase_rag"]
+
+[lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[lint.flake8-type-checking]
+strict = true
