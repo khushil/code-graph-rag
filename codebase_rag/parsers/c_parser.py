@@ -114,7 +114,7 @@ class CParser:
 
         # Perform kernel-specific analysis
         kernel_analyzer = CKernelAnalyzer()
-        syscalls, module_info, concurrency_primitives, kernel_relationships = (
+        syscalls, module_info, concurrency_primitives, kernel_relationships, ioctls = (
             kernel_analyzer.analyze_kernel_patterns(tree.root_node, content, file_path)
         )
 
@@ -154,6 +154,24 @@ class CParser:
 
         # Add kernel relationships
         self.relationships.extend(kernel_relationships)
+        
+        # Add ioctl nodes
+        for ioctl_name, ioctl_info in ioctls.items():
+            self.nodes.append(
+                CNode(
+                    node_type="ioctl",
+                    name=ioctl_name,
+                    file_path=file_path,
+                    start_line=ioctl_info.location[0],
+                    end_line=ioctl_info.location[0],
+                    properties={
+                        "magic": ioctl_info.magic,
+                        "number": ioctl_info.number,
+                        "direction": ioctl_info.direction,
+                        "type": ioctl_info.data_type,
+                    },
+                )
+            )
 
         # Add module info as properties of the file
         if module_info.exported_symbols or module_info.init_function:

@@ -376,7 +376,7 @@ def test_pointer_dereferencing_tracking(parser, queries):  # noqa: ARG001
     assert any("pp" in r[0] for r in deref_rels)
 
 
-def test_c_parser_integration(parser, queries):  # noqa: ARG001
+def test_c_parser_integration(parser, queries):
     """Test that CParser properly creates Pointer nodes."""
     code = """
     int x = 5;
