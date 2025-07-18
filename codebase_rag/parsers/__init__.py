@@ -6,15 +6,15 @@ from .test_detector import TestDetector, TestFrameworkInfo
 from .test_parser import TestNode, TestParser
 
 __all__ = [
-    "ConfigParser",
-    "ConfigFile",
-    "ConfigSetting",
-    "TestDetector",
-    "TestFrameworkInfo", 
-    "TestParser",
-    "TestNode",
-    "BDDParser",
     "BDDFeature",
+    "BDDParser",
     "BDDScenario",
     "BDDStep",
+    "ConfigFile",
+    "ConfigParser",
+    "ConfigSetting",
+    "TestDetector",
+    "TestFrameworkInfo",
+    "TestNode",
+    "TestParser",
 ]

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 @dataclass
 class TestFrameworkInfo:
     """Information about detected test framework."""
+
     language: str
     framework: str
     test_patterns: list[str] = field(default_factory=list)
@@ -77,7 +78,11 @@ class TestDetector:
                 "imports": [r"import unittest", r"from unittest import"],
                 "decorators": [r"@unittest\."],
                 "functions": [r"class.*\(.*TestCase\)", r"def test_"],
-                "assertions": [r"self\.assert", r"self\.assertEqual", r"self\.assertTrue"],
+                "assertions": [
+                    r"self\.assert",
+                    r"self\.assertEqual",
+                    r"self\.assertTrue",
+                ],
             },
             "behave": {
                 "imports": [r"from behave import"],
@@ -90,20 +95,38 @@ class TestDetector:
             "jest": {
                 "imports": [],
                 "decorators": [],
-                "functions": [r"describe\s*\(", r"test\s*\(", r"it\s*\(", r"beforeEach\s*\("],
+                "functions": [
+                    r"describe\s*\(",
+                    r"test\s*\(",
+                    r"it\s*\(",
+                    r"beforeEach\s*\(",
+                ],
                 "assertions": [r"expect\s*\(", r"\.toBe", r"\.toEqual"],
             },
             "mocha": {
                 "imports": [r"require\s*\(\s*['\"]mocha", r"import.*from\s+['\"]mocha"],
                 "decorators": [],
-                "functions": [r"describe\s*\(", r"it\s*\(", r"before\s*\(", r"after\s*\("],
+                "functions": [
+                    r"describe\s*\(",
+                    r"it\s*\(",
+                    r"before\s*\(",
+                    r"after\s*\(",
+                ],
                 "assertions": [r"assert\.", r"expect\s*\(", r"should\."],
             },
             "jasmine": {
                 "imports": [],
                 "decorators": [],
-                "functions": [r"describe\s*\(", r"it\s*\(", r"beforeEach\s*\(", r"afterEach\s*\("],
-                "assertions": [r"expect\s*\(.*\)\s*\.toBe", r"expect\s*\(.*\)\s*\.toEqual"],
+                "functions": [
+                    r"describe\s*\(",
+                    r"it\s*\(",
+                    r"beforeEach\s*\(",
+                    r"afterEach\s*\(",
+                ],
+                "assertions": [
+                    r"expect\s*\(.*\)\s*\.toBe",
+                    r"expect\s*\(.*\)\s*\.toEqual",
+                ],
             },
         },
         "c": {
@@ -136,7 +159,11 @@ class TestDetector:
         },
         "go": {
             "testing": {
-                "imports": [r"import\s+.*\"testing\"", r"\"testing\"", r"import\s*\(\s*[^)]*\"testing\""],
+                "imports": [
+                    r"import\s+.*\"testing\"",
+                    r"\"testing\"",
+                    r"import\s*\(\s*[^)]*\"testing\"",
+                ],
                 "decorators": [],
                 "functions": [r"func\s+Test", r"func\s+Benchmark"],
                 "assertions": [r"t\.Error", r"t\.Fail", r"t\.Fatal"],
@@ -168,7 +195,15 @@ class TestDetector:
     BDD_PATTERNS = {
         "gherkin": {
             "file_extensions": [".feature"],
-            "keywords": ["Feature:", "Scenario:", "Given", "When", "Then", "And", "But"],
+            "keywords": [
+                "Feature:",
+                "Scenario:",
+                "Given",
+                "When",
+                "Then",
+                "And",
+                "But",
+            ],
         },
         "python_behave": {
             "decorators": [r"@given", r"@when", r"@then", r"@step"],
@@ -195,7 +230,9 @@ class TestDetector:
 
         return False
 
-    def detect_framework(self, content: str, language: str, file_path: str) -> TestFrameworkInfo | None:
+    def detect_framework(
+        self, content: str, language: str, file_path: str
+    ) -> TestFrameworkInfo | None:
         """Detect which test framework is being used in the file."""
         if language not in self.FRAMEWORK_PATTERNS:
             return None
@@ -257,7 +294,9 @@ class TestDetector:
 
         return None
 
-    def extract_test_names(self, content: str, framework_info: TestFrameworkInfo) -> list[str]:
+    def extract_test_names(
+        self, content: str, framework_info: TestFrameworkInfo
+    ) -> list[str]:
         """Extract test function/method names from the content."""
         test_names = []
 
@@ -271,17 +310,21 @@ class TestDetector:
 
             elif "describe" in pattern or "it" in pattern:
                 # JavaScript style test descriptions
-                matches = re.finditer(pattern + r"['\"]([^'\"]+)['\"]", content, re.MULTILINE)
+                matches = re.finditer(
+                    pattern + r"['\"]([^'\"]+)['\"]", content, re.MULTILINE
+                )
                 for match in matches:
                     test_names.append(match.group(1))
 
         return test_names
 
-    def extract_assertions(self, content: str, framework_info: TestFrameworkInfo) -> list[tuple[int, str]]:
+    def extract_assertions(
+        self, content: str, framework_info: TestFrameworkInfo
+    ) -> list[tuple[int, str]]:
         """Extract assertions with their line numbers."""
         assertions = []
 
-        lines = content.split('\n')
+        lines = content.split("\n")
         for i, line in enumerate(lines):
             for pattern in framework_info.assertion_patterns:
                 if re.search(pattern, line):
@@ -293,7 +336,12 @@ class TestDetector:
     def _get_setup_patterns(self, framework: str) -> list[str]:
         """Get setup method patterns for a framework."""
         setup_patterns = {
-            "pytest": [r"def setup", r"def setup_method", r"def setup_class", r"@pytest\.fixture"],
+            "pytest": [
+                r"def setup",
+                r"def setup_method",
+                r"def setup_class",
+                r"@pytest\.fixture",
+            ],
             "unittest": [r"def setUp", r"def setUpClass"],
             "jest": [r"beforeEach\s*\(", r"beforeAll\s*\("],
             "mocha": [r"before\s*\(", r"beforeEach\s*\("],

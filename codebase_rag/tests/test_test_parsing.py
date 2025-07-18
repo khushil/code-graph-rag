@@ -4,7 +4,7 @@ import pytest
 
 from codebase_rag.parser_loader import load_parsers
 from codebase_rag.parsers.bdd_parser import BDDParser
-from codebase_rag.parsers.test_detector import TestDetector, TestFrameworkInfo
+from codebase_rag.parsers.test_detector import TestDetector
 from codebase_rag.parsers.test_parser import TestParser
 
 
@@ -102,7 +102,9 @@ describe('Example', () => {
     def test_javascript_test_parsing(self, parsers_and_queries):
         """Test parsing JavaScript test files."""
         parsers, queries = parsers_and_queries
-        test_parser = TestParser(parsers["javascript"], queries["javascript"], "javascript")
+        test_parser = TestParser(
+            parsers["javascript"], queries["javascript"], "javascript"
+        )
 
         # Read test file
         test_file = Path(__file__).parent / "fixtures" / "test_javascript.test.js"
@@ -140,12 +142,16 @@ describe('Example', () => {
         assert "Division by zero" in scenario_names
 
         # Check scenario with outline
-        outline = next(s for s in feature.scenarios if s.name == "Multiplication operations")
+        outline = next(
+            s for s in feature.scenarios if s.name == "Multiplication operations"
+        )
         assert outline.examples is not None
         assert len(outline.examples) == 3
 
         # Check tags
-        addition_scenario = next(s for s in feature.scenarios if s.name == "Addition of two numbers")
+        addition_scenario = next(
+            s for s in feature.scenarios if s.name == "Addition of two numbers"
+        )
         assert "@arithmetic" in addition_scenario.tags
         assert "@basic" in addition_scenario.tags
 
@@ -192,10 +198,9 @@ describe('Example', () => {
 
         # Create a step
         from codebase_rag.parsers.bdd_parser import BDDStep
+
         step = BDDStep(
-            keyword="Given",
-            text="I have entered 50 into the calculator",
-            line_number=1
+            keyword="Given", text="I have entered 50 into the calculator", line_number=1
         )
 
         # Match step to definition
@@ -207,7 +212,7 @@ describe('Example', () => {
         parsers, queries = parsers_and_queries
         if "java" not in parsers:
             pytest.skip("Java parser not available")
-            
+
         test_parser = TestParser(parsers["java"], queries["java"], "java")
 
         # Read test file
@@ -235,7 +240,7 @@ describe('Example', () => {
         parsers, queries = parsers_and_queries
         if "rust" not in parsers:
             pytest.skip("Rust parser not available")
-            
+
         test_parser = TestParser(parsers["rust"], queries["rust"], "rust")
 
         # Read test file
@@ -250,7 +255,9 @@ describe('Example', () => {
         assert "integration_tests" in suite_names
 
         # Check test functions
-        test_names = [n.name for n in nodes if n.node_type in ["test_function", "test_case"]]
+        test_names = [
+            n.name for n in nodes if n.node_type in ["test_function", "test_case"]
+        ]
         assert "test_add_positive_numbers" in test_names
         assert "test_divide_by_zero" in test_names
         assert "standalone_test_function" in test_names
@@ -260,7 +267,7 @@ describe('Example', () => {
         parsers, queries = parsers_and_queries
         if "go" not in parsers:
             pytest.skip("Go parser not available")
-            
+
         test_parser = TestParser(parsers["go"], queries["go"], "go")
 
         # Read standard Go test file
@@ -281,13 +288,13 @@ describe('Example', () => {
         parsers, queries = parsers_and_queries
         if "go" not in parsers:
             pytest.skip("Go parser not available")
-            
+
         test_parser = TestParser(parsers["go"], queries["go"], "go")
 
         # Read Ginkgo test file
         test_file = Path(__file__).parent / "fixtures" / "calculator_ginkgo_test.go"
         content = test_file.read_text()
-        
+
         # Manually trigger Ginkgo detection by checking the content
         if "github.com/onsi/ginkgo" in content:
             # The detector should pick this up, but let's ensure it works
@@ -297,7 +304,11 @@ describe('Example', () => {
             pytest.skip("Ginkgo framework not detected in test file")
 
         # Should find the main test function
-        test_funcs = [n for n in nodes if n.node_type == "test_function" and n.name == "TestCalculator"]
+        test_funcs = [
+            n
+            for n in nodes
+            if n.node_type == "test_function" and n.name == "TestCalculator"
+        ]
         assert len(test_funcs) > 0
 
         # Check for Describe/Context blocks (test suites)

@@ -9,7 +9,7 @@ import (
 // Standard Go testing
 func TestAdd(t *testing.T) {
     calc := NewCalculator()
-    
+
     result := calc.Add(2, 3)
     if result != 5 {
         t.Errorf("Add(2, 3) = %d; want 5", result)
@@ -18,7 +18,7 @@ func TestAdd(t *testing.T) {
 
 func TestSubtract(t *testing.T) {
     calc := NewCalculator()
-    
+
     tests := []struct {
         name string
         a, b int
@@ -28,7 +28,7 @@ func TestSubtract(t *testing.T) {
         {"negative result", 3, 5, -2},
         {"with zero", 5, 0, 5},
     }
-    
+
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
             if got := calc.Subtract(tt.a, tt.b); got != tt.want {
@@ -40,7 +40,7 @@ func TestSubtract(t *testing.T) {
 
 func TestDivide(t *testing.T) {
     calc := NewCalculator()
-    
+
     t.Run("normal division", func(t *testing.T) {
         result, err := calc.Divide(10, 2)
         if err != nil {
@@ -50,7 +50,7 @@ func TestDivide(t *testing.T) {
             t.Errorf("Divide(10, 2) = %f; want 5", result)
         }
     })
-    
+
     t.Run("divide by zero", func(t *testing.T) {
         _, err := calc.Divide(10, 0)
         if err == nil {

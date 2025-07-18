@@ -13,13 +13,16 @@ from .test_detector import TestDetector, TestFrameworkInfo
 @dataclass
 class TestNode:
     """Represents a test-related node in the graph."""
+
     node_type: str  # test_suite, test_case, test_function, assertion, bdd_feature, bdd_scenario
     name: str
     file_path: str
     start_line: int
     end_line: int
     properties: dict[str, Any] = field(default_factory=dict)
-    relationships: list[tuple[str, str, str]] = field(default_factory=list)  # (rel_type, target_type, target_name)
+    relationships: list[tuple[str, str, str]] = field(
+        default_factory=list
+    )  # (rel_type, target_type, target_name)
 
 
 class TestParser:
@@ -32,16 +35,22 @@ class TestParser:
         self.test_detector = TestDetector()
         self.bdd_parser = BDDParser()
         self.nodes: list[TestNode] = []
-        self.relationships: list[tuple[str, str, str, str]] = []  # (source, rel_type, target_type, target)
+        self.relationships: list[
+            tuple[str, str, str, str]
+        ] = []  # (source, rel_type, target_type, target)
 
-    def parse_test_file(self, file_path: str, content: str) -> tuple[list[TestNode], list[tuple[str, str, str, str]]]:
+    def parse_test_file(
+        self, file_path: str, content: str
+    ) -> tuple[list[TestNode], list[tuple[str, str, str, str]]]:
         """Parse a test file and extract test nodes and relationships."""
         self.nodes = []
         self.relationships = []
         self.current_file = file_path
 
         # Detect test framework
-        framework_info = self.test_detector.detect_framework(content, self.language, file_path)
+        framework_info = self.test_detector.detect_framework(
+            content, self.language, file_path
+        )
         if not framework_info:
             logger.warning(f"Could not detect test framework for {file_path}")
             return self.nodes, self.relationships
@@ -66,7 +75,9 @@ class TestParser:
 
         return self.nodes, self.relationships
 
-    def parse_bdd_file(self, file_path: str, content: str) -> tuple[list[TestNode], list[tuple[str, str, str, str]]]:
+    def parse_bdd_file(
+        self, file_path: str, content: str
+    ) -> tuple[list[TestNode], list[tuple[str, str, str, str]]]:
         """Parse a BDD feature file."""
         self.nodes = []
         self.relationships = []
@@ -79,11 +90,11 @@ class TestParser:
             name=feature.name,
             file_path=file_path,
             start_line=feature.line_number,
-            end_line=len(content.split('\n')),
+            end_line=len(content.split("\n")),
             properties={
                 "description": feature.description,
                 "tags": feature.tags,
-            }
+            },
         )
         self.nodes.append(feature_node)
 
@@ -99,7 +110,7 @@ class TestParser:
                     "tags": scenario.tags,
                     "step_count": len(scenario.steps),
                     "has_examples": scenario.examples is not None,
-                }
+                },
             )
             self.nodes.append(scenario_node)
 
@@ -111,27 +122,42 @@ class TestParser:
             # Create step relationships
             for step in scenario.steps:
                 self.relationships.append(
-                    (scenario.name, "HAS_STEP", "bdd_step", f"{step.keyword} {step.text}")
+                    (
+                        scenario.name,
+                        "HAS_STEP",
+                        "bdd_step",
+                        f"{step.keyword} {step.text}",
+                    )
                 )
 
         return self.nodes, self.relationships
 
-    def link_bdd_to_code(self, step_definitions: list[tuple[str, str, str]],
-                         feature: BDDFeature) -> list[tuple[str, str, str, str]]:
+    def link_bdd_to_code(
+        self, step_definitions: list[tuple[str, str, str]], feature: BDDFeature
+    ) -> list[tuple[str, str, str, str]]:
         """Link BDD steps to their code implementations."""
         links = []
 
         for scenario in feature.scenarios:
             for step in scenario.steps:
-                function_name = self.bdd_parser.match_step_to_definition(step, step_definitions)
+                function_name = self.bdd_parser.match_step_to_definition(
+                    step, step_definitions
+                )
                 if function_name:
                     links.append(
-                        (f"{step.keyword} {step.text}", "IMPLEMENTS_STEP", "function", function_name)
+                        (
+                            f"{step.keyword} {step.text}",
+                            "IMPLEMENTS_STEP",
+                            "function",
+                            function_name,
+                        )
                     )
 
         return links
 
-    def _parse_python_tests(self, content: str, framework_info: TestFrameworkInfo) -> None:
+    def _parse_python_tests(
+        self, content: str, framework_info: TestFrameworkInfo
+    ) -> None:
         """Parse Python test files (pytest/unittest)."""
         tree = self.parser.parse(bytes(content, "utf8"))
 
@@ -141,7 +167,9 @@ class TestParser:
             class_captures = class_query.captures(tree.root_node)
             for class_node in class_captures.get("class", []):
                 class_name = self._get_node_name(class_node)
-                if class_name and (class_name.startswith("Test") or "Test" in class_name):
+                if class_name and (
+                    class_name.startswith("Test") or "Test" in class_name
+                ):
                     test_suite = TestNode(
                         node_type="test_suite",
                         name=class_name,
@@ -150,7 +178,7 @@ class TestParser:
                         end_line=class_node.end_point[0] + 1,
                         properties={
                             "framework": framework_info.framework,
-                        }
+                        },
                     )
                     self.nodes.append(test_suite)
 
@@ -172,11 +200,13 @@ class TestParser:
                         end_line=func_node.end_point[0] + 1,
                         properties={
                             "framework": framework_info.framework,
-                        }
+                        },
                     )
                     self.nodes.append(test_func)
 
-    def _parse_javascript_tests(self, content: str, framework_info: TestFrameworkInfo) -> None:
+    def _parse_javascript_tests(
+        self, content: str, framework_info: TestFrameworkInfo
+    ) -> None:
         """Parse JavaScript test files (Jest/Mocha)."""
         tree = self.parser.parse(bytes(content, "utf8"))
 
@@ -202,11 +232,13 @@ class TestParser:
                         end_line=func_node.end_point[0] + 1,
                         properties={
                             "framework": framework_info.framework,
-                        }
+                        },
                     )
                     self.nodes.append(test_func)
 
-    def _extract_test_methods(self, class_node: Node, class_name: str, framework_info: TestFrameworkInfo) -> None:
+    def _extract_test_methods(
+        self, class_node: Node, class_name: str, framework_info: TestFrameworkInfo
+    ) -> None:
         """Extract test methods from a test class."""
         # Walk through class body to find methods
         for child in class_node.named_children:
@@ -224,7 +256,7 @@ class TestParser:
                                 properties={
                                     "framework": framework_info.framework,
                                     "parent_suite": class_name,
-                                }
+                                },
                             )
                             self.nodes.append(test_case)
 
@@ -233,7 +265,13 @@ class TestParser:
                                 (class_name, "CONTAINS_TEST", "test_case", method_name)
                             )
 
-    def _walk_js_test_tree(self, node: Node, content: str, framework_info: TestFrameworkInfo, parent_suite: str | None = None) -> None:
+    def _walk_js_test_tree(
+        self,
+        node: Node,
+        content: str,
+        framework_info: TestFrameworkInfo,
+        parent_suite: str | None = None,
+    ) -> None:
         """Walk JavaScript AST to find test constructs."""
         if node.type == "call_expression":
             function_node = node.child_by_field_name("function")
@@ -247,7 +285,7 @@ class TestParser:
                         # Get suite name from first argument
                         name_arg = args.named_children[0]
                         if name_arg.type == "string":
-                            suite_name = name_arg.text.decode("utf-8").strip('"\'')
+                            suite_name = name_arg.text.decode("utf-8").strip("\"'")
 
                             test_suite = TestNode(
                                 node_type="test_suite",
@@ -257,19 +295,26 @@ class TestParser:
                                 end_line=node.end_point[0] + 1,
                                 properties={
                                     "framework": framework_info.framework,
-                                }
+                                },
                             )
                             self.nodes.append(test_suite)
 
                             if parent_suite:
                                 self.relationships.append(
-                                    (parent_suite, "CONTAINS_SUITE", "test_suite", suite_name)
+                                    (
+                                        parent_suite,
+                                        "CONTAINS_SUITE",
+                                        "test_suite",
+                                        suite_name,
+                                    )
                                 )
 
                             # Process callback for nested tests
                             if len(args.named_children) > 1:
                                 callback = args.named_children[1]
-                                self._walk_js_test_tree(callback, content, framework_info, suite_name)
+                                self._walk_js_test_tree(
+                                    callback, content, framework_info, suite_name
+                                )
 
                 # Check for test/it blocks
                 elif func_name in ["test", "it"]:
@@ -278,7 +323,7 @@ class TestParser:
                         # Get test name from first argument
                         name_arg = args.named_children[0]
                         if name_arg.type == "string":
-                            test_name = name_arg.text.decode("utf-8").strip('"\'')
+                            test_name = name_arg.text.decode("utf-8").strip("\"'")
 
                             test_case = TestNode(
                                 node_type="test_case",
@@ -288,20 +333,27 @@ class TestParser:
                                 end_line=node.end_point[0] + 1,
                                 properties={
                                     "framework": framework_info.framework,
-                                }
+                                },
                             )
                             self.nodes.append(test_case)
 
                             if parent_suite:
                                 self.relationships.append(
-                                    (parent_suite, "CONTAINS_TEST", "test_case", test_name)
+                                    (
+                                        parent_suite,
+                                        "CONTAINS_TEST",
+                                        "test_case",
+                                        test_name,
+                                    )
                                 )
 
         # Recurse to children
         for child in node.named_children:
             self._walk_js_test_tree(child, content, framework_info, parent_suite)
 
-    def _create_assertion_relationships(self, assertions: list[tuple[int, str]]) -> None:
+    def _create_assertion_relationships(
+        self, assertions: list[tuple[int, str]]
+    ) -> None:
         """Create relationships for assertions to their containing tests."""
         # Find which test each assertion belongs to
         for line_num, assertion_text in assertions:
@@ -310,7 +362,12 @@ class TestParser:
                 if node.node_type in ["test_case", "test_function"]:
                     if node.start_line <= line_num <= node.end_line:
                         self.relationships.append(
-                            (node.name, "ASSERTS", "assertion", assertion_text[:50])  # Truncate long assertions
+                            (
+                                node.name,
+                                "ASSERTS",
+                                "assertion",
+                                assertion_text[:50],
+                            )  # Truncate long assertions
                         )
                         break
 
@@ -363,7 +420,9 @@ class TestParser:
 
         return None
 
-    def _parse_java_tests(self, content: str, framework_info: TestFrameworkInfo) -> None:
+    def _parse_java_tests(
+        self, content: str, framework_info: TestFrameworkInfo
+    ) -> None:
         """Parse Java test files (JUnit/TestNG)."""
         tree = self.parser.parse(bytes(content, "utf8"))
 
@@ -373,7 +432,9 @@ class TestParser:
             class_captures = class_query.captures(tree.root_node)
             for class_node in class_captures.get("class", []):
                 class_name = self._get_node_name(class_node)
-                if class_name and ("Test" in class_name or class_name.endswith("Tests")):
+                if class_name and (
+                    "Test" in class_name or class_name.endswith("Tests")
+                ):
                     test_suite = TestNode(
                         node_type="test_suite",
                         name=class_name,
@@ -382,17 +443,21 @@ class TestParser:
                         end_line=class_node.end_point[0] + 1,
                         properties={
                             "framework": framework_info.framework,
-                        }
+                        },
                     )
                     self.nodes.append(test_suite)
 
                     # Find test methods with @Test annotation
-                    self._extract_java_test_methods(class_node, class_name, framework_info)
+                    self._extract_java_test_methods(
+                        class_node, class_name, framework_info
+                    )
 
         # Find test methods outside classes (rare but possible)
         self._find_standalone_java_tests(tree.root_node, framework_info)
 
-    def _parse_rust_tests(self, content: str, framework_info: TestFrameworkInfo) -> None:
+    def _parse_rust_tests(
+        self, content: str, framework_info: TestFrameworkInfo
+    ) -> None:
         """Parse Rust test files."""
         tree = self.parser.parse(bytes(content, "utf8"))
 
@@ -412,7 +477,11 @@ class TestParser:
             function_captures = function_query.captures(tree.root_node)
             for func_node in function_captures.get("function", []):
                 func_name = self._get_node_name(func_node)
-                if func_name and (func_name.startswith("Test") or func_name.startswith("Benchmark") or func_name.startswith("Example")):
+                if func_name and (
+                    func_name.startswith("Test")
+                    or func_name.startswith("Benchmark")
+                    or func_name.startswith("Example")
+                ):
                     test_func = TestNode(
                         node_type="test_function",
                         name=func_name,
@@ -421,8 +490,12 @@ class TestParser:
                         end_line=func_node.end_point[0] + 1,
                         properties={
                             "framework": framework_info.framework,
-                            "test_type": "benchmark" if func_name.startswith("Benchmark") else "example" if func_name.startswith("Example") else "test",
-                        }
+                            "test_type": "benchmark"
+                            if func_name.startswith("Benchmark")
+                            else "example"
+                            if func_name.startswith("Example")
+                            else "test",
+                        },
                     )
                     self.nodes.append(test_func)
 
@@ -430,7 +503,9 @@ class TestParser:
                     if framework_info.framework == "ginkgo":
                         self._parse_ginkgo_structure(func_node, framework_info)
 
-    def _extract_java_test_methods(self, class_node: Node, class_name: str, framework_info: TestFrameworkInfo) -> None:
+    def _extract_java_test_methods(
+        self, class_node: Node, class_name: str, framework_info: TestFrameworkInfo
+    ) -> None:
         """Extract test methods from a Java test class."""
         # Walk through class body to find methods with @Test annotation
         for child in class_node.named_children:
@@ -442,7 +517,10 @@ class TestParser:
                         for method_child in member.children:
                             if method_child.type == "modifiers":
                                 for modifier in method_child.children:
-                                    if modifier.type == "marker_annotation" and modifier.text.decode("utf-8") == "@Test":
+                                    if (
+                                        modifier.type == "marker_annotation"
+                                        and modifier.text.decode("utf-8") == "@Test"
+                                    ):
                                         has_test_annotation = True
                                         break
 
@@ -458,16 +536,23 @@ class TestParser:
                                     properties={
                                         "framework": framework_info.framework,
                                         "parent_suite": class_name,
-                                    }
+                                    },
                                 )
                                 self.nodes.append(test_case)
 
                                 # Create relationship
                                 self.relationships.append(
-                                    (class_name, "CONTAINS_TEST", "test_case", method_name)
+                                    (
+                                        class_name,
+                                        "CONTAINS_TEST",
+                                        "test_case",
+                                        method_name,
+                                    )
                                 )
 
-    def _find_standalone_java_tests(self, node: Node, framework_info: TestFrameworkInfo) -> None:
+    def _find_standalone_java_tests(
+        self, node: Node, framework_info: TestFrameworkInfo
+    ) -> None:
         """Find Java test methods that might be defined outside of classes."""
         # This is uncommon in Java but handle it for completeness
         if node.type == "method_declaration":
@@ -475,7 +560,10 @@ class TestParser:
             for child in node.children:
                 if child.type == "modifiers":
                     for modifier in child.children:
-                        if modifier.type == "marker_annotation" and "@Test" in modifier.text.decode("utf-8"):
+                        if (
+                            modifier.type == "marker_annotation"
+                            and "@Test" in modifier.text.decode("utf-8")
+                        ):
                             method_name = self._get_node_name(node)
                             if method_name:
                                 test_func = TestNode(
@@ -486,7 +574,7 @@ class TestParser:
                                     end_line=node.end_point[0] + 1,
                                     properties={
                                         "framework": framework_info.framework,
-                                    }
+                                    },
                                 )
                                 self.nodes.append(test_func)
 
@@ -494,7 +582,9 @@ class TestParser:
         for child in node.named_children:
             self._find_standalone_java_tests(child, framework_info)
 
-    def _find_rust_test_modules(self, node: Node, framework_info: TestFrameworkInfo) -> None:
+    def _find_rust_test_modules(
+        self, node: Node, framework_info: TestFrameworkInfo
+    ) -> None:
         """Find Rust test modules (mod tests)."""
         if node.type == "mod_item":
             # Check if it has #[cfg(test)] attribute
@@ -517,7 +607,7 @@ class TestParser:
                         end_line=node.end_point[0] + 1,
                         properties={
                             "framework": framework_info.framework,
-                        }
+                        },
                     )
                     self.nodes.append(test_suite)
 
@@ -525,7 +615,12 @@ class TestParser:
         for child in node.named_children:
             self._find_rust_test_modules(child, framework_info)
 
-    def _find_rust_test_functions(self, node: Node, framework_info: TestFrameworkInfo, parent_suite: str | None = None) -> None:
+    def _find_rust_test_functions(
+        self,
+        node: Node,
+        framework_info: TestFrameworkInfo,
+        parent_suite: str | None = None,
+    ) -> None:
         """Find Rust test functions with #[test] attribute."""
         if node.type == "function_item":
             # Check for #[test] attribute
@@ -548,7 +643,7 @@ class TestParser:
                         end_line=node.end_point[0] + 1,
                         properties={
                             "framework": framework_info.framework,
-                        }
+                        },
                     )
                     self.nodes.append(test_func)
 
@@ -560,7 +655,10 @@ class TestParser:
         # If this is a test module, track it as parent
         if node.type == "mod_item" and parent_suite is None:
             for child in node.named_children:
-                if child.type == "attribute_item" and "#[cfg(test)]" in child.text.decode("utf-8"):
+                if (
+                    child.type == "attribute_item"
+                    and "#[cfg(test)]" in child.text.decode("utf-8")
+                ):
                     mod_name = self._get_node_name(node)
                     if mod_name:
                         parent_suite = mod_name
@@ -570,12 +668,19 @@ class TestParser:
         for child in node.named_children:
             self._find_rust_test_functions(child, framework_info, parent_suite)
 
-    def _parse_ginkgo_structure(self, node: Node, framework_info: TestFrameworkInfo) -> None:
+    def _parse_ginkgo_structure(
+        self, node: Node, framework_info: TestFrameworkInfo
+    ) -> None:
         """Parse Ginkgo BDD-style test structure in Go."""
         # Look for Describe/Context/It blocks within the test function
         self._walk_ginkgo_tree(node, framework_info)
 
-    def _walk_ginkgo_tree(self, node: Node, framework_info: TestFrameworkInfo, parent_suite: str | None = None) -> None:
+    def _walk_ginkgo_tree(
+        self,
+        node: Node,
+        framework_info: TestFrameworkInfo,
+        parent_suite: str | None = None,
+    ) -> None:
         """Walk Go AST to find Ginkgo test constructs."""
         if node.type == "call_expression":
             function_node = node.child_by_field_name("function")
@@ -600,19 +705,26 @@ class TestParser:
                                 properties={
                                     "framework": framework_info.framework,
                                     "ginkgo_type": func_name.lower(),
-                                }
+                                },
                             )
                             self.nodes.append(test_suite)
 
                             if parent_suite:
                                 self.relationships.append(
-                                    (parent_suite, "CONTAINS_SUITE", "test_suite", suite_name)
+                                    (
+                                        parent_suite,
+                                        "CONTAINS_SUITE",
+                                        "test_suite",
+                                        suite_name,
+                                    )
                                 )
 
                             # Process callback for nested tests
                             if len(args.named_children) > 1:
                                 callback = args.named_children[1]
-                                self._walk_ginkgo_tree(callback, framework_info, suite_name)
+                                self._walk_ginkgo_tree(
+                                    callback, framework_info, suite_name
+                                )
 
                 # Check for It blocks
                 elif func_name == "It":
@@ -631,13 +743,18 @@ class TestParser:
                                 end_line=node.end_point[0] + 1,
                                 properties={
                                     "framework": framework_info.framework,
-                                }
+                                },
                             )
                             self.nodes.append(test_case)
 
                             if parent_suite:
                                 self.relationships.append(
-                                    (parent_suite, "CONTAINS_TEST", "test_case", test_name)
+                                    (
+                                        parent_suite,
+                                        "CONTAINS_TEST",
+                                        "test_case",
+                                        test_name,
+                                    )
                                 )
 
         # Recurse to children
